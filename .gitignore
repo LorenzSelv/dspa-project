@@ -1,0 +1,6 @@
+/target
+**/*.rs.bk
+1k-users-sorted/
+Cargo.lock
+tips
+docset/
