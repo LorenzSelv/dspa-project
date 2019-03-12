@@ -32,3 +32,17 @@ pub struct PostEvent {
     forum_id: u64,
     place_id: u64
 }
+
+
+pub fn deserialize<T>(record: String) -> T 
+    where for <'a> T: serde::Deserialize<'a>
+{
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .delimiter(b'|')
+        .from_reader(record.as_bytes());
+
+    // TODO do not crash on wrong format
+    reader.deserialize::<T>().next().unwrap()
+        .expect(&format!("Could not deserialize record: {} ", record))
+}
