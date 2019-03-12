@@ -1,12 +1,15 @@
-//use timely::dataflow::{Scope, Stream};
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{Consumer, BaseConsumer, EmptyConsumerContext};
-//use timely::communication::allocator::Generic;
+
+use timely::worker::Worker;
+use timely::dataflow::Stream;
+use timely::dataflow::scopes::Child;
+use timely::communication::allocator::Generic;
 
 pub fn string_stream<'a> (
-    scope: &&mut timely::dataflow::scopes::Child<'a, timely::worker::Worker<timely::communication::allocator::Generic>, u64>,
+    scope: &mut timely::dataflow::scopes::Child<'a, Worker<Generic>, u64>,
     topic: &'static str 
-) -> timely::dataflow::Stream<timely::dataflow::scopes::Child<'a, timely::worker::Worker<timely::communication::allocator::Generic>, u64>, std::string::String>
+) -> Stream<Child<'a, Worker<Generic>, u64>, String>
 {
     let brokers = "localhost:9092";
 
