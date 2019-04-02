@@ -1,0 +1,11 @@
+[package]
+name = "explore"
+version = "0.1.0"
+authors = ["Lorenzo Selvatici <selvatici.lorenzo@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+timely = "0.8"
+rand = "*"
+rdkafka = "0.20"
+chrono = { version = "0.4", features = ["serde"] }
