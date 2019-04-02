@@ -19,7 +19,7 @@ pub fn string_stream<'a> (
     consumer_config
         .set("produce.offset.report", "true")
         .set("auto.offset.reset", "smallest")
-        .set("group.id", "example")
+        .set("group.id", "example") // TODO we wanna change this
         .set("enable.auto.commit", "false")
         .set("enable.partition.eof", "false")
         .set("auto.offset.reset", "earliest")
