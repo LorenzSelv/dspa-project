@@ -1,43 +1,44 @@
+// Generic event with timestamp (u64)
 #[derive(Debug,Clone)]
 pub enum Event {
-    Post(PostEvent),
-    Like(LikeEvent),
-    Comment(CommentEvent)
+    Post(u64, PostEvent),
+    Like(u64, LikeEvent),
+    Comment(u64, CommentEvent)
 }
 
 #[derive(Debug,Deserialize,Clone)]
 pub struct LikeEvent {
-    person_id: u64,
-    post_id: u64,
-    creation_date: chrono::DateTime<chrono::Utc>
+    pub person_id: u64,
+    pub post_id: u64,
+    pub creation_date: chrono::DateTime<chrono::Utc>
 }
 
 #[derive(Debug,Deserialize,Clone)]
 pub struct CommentEvent {
-    comment_id: u64,
-    person_id: u64,
-    creation_date: chrono::DateTime<chrono::Utc>,
-    location_ip: String,
-    browser_used: String,
-    content: String,
-    reply_to_post_id: Option<u64>,
-    reply_to_comment_id: Option<u64>,
-    place_id: u64
+    pub comment_id: u64,
+    pub person_id: u64,
+    pub creation_date: chrono::DateTime<chrono::Utc>,
+    pub location_ip: String,
+    pub browser_used: String,
+    pub content: String,
+    pub reply_to_post_id: Option<u64>,
+    pub reply_to_comment_id: Option<u64>,
+    pub place_id: u64
 }
 
 #[derive(Debug,Deserialize,Clone)]
 pub struct PostEvent {
-    post_id: u64,
-    person_id: u64,
-    creation_date: chrono::DateTime<chrono::Utc>,
-    image_file: Option<String>,
-    location_ip: String,
-    browser_used: String,
-    language: Option<String>,
-    content: Option<String>,
-    tags: Option<String>, // TODO should be Vec<u64>>
-    forum_id: u64,
-    place_id: u64
+    pub post_id: u64,
+    pub person_id: u64,
+    pub creation_date: chrono::DateTime<chrono::Utc>,
+    pub image_file: Option<String>,
+    pub location_ip: String,
+    pub browser_used: String,
+    pub language: Option<String>,
+    pub content: Option<String>,
+    pub tags: Option<String>, // TODO should be Vec<u64>>
+    pub forum_id: u64,
+    pub place_id: u64
 }
 
 
