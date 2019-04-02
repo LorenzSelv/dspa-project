@@ -18,8 +18,6 @@ const POSTS_TOPIC: &'static str = "posts";
 const LIKES_TOPIC: &'static str = "likes";
 const COMMENTS_TOPIC: &'static str = "comments";
 
-const dataset: &'static str = "../dataset/1k-users-sorted/streams/";
-
 const DELAY_PROB: f64 = 0.3;
 const MAX_DELAY_SECONDS: u64 = 360;
 const SPEEDUP_FACTOR: u64 = 3600;
@@ -84,9 +82,9 @@ impl EventStream {
         };
 
         let mut buf = String::new();
-        res.posts_stream_reader.read_line(&mut buf);
-        res.likes_stream_reader.read_line(&mut buf);
-        res.comments_stream_reader.read_line(&mut buf);
+        res.posts_stream_reader.read_line(&mut buf).unwrap();
+        res.likes_stream_reader.read_line(&mut buf).unwrap();
+        res.comments_stream_reader.read_line(&mut buf).unwrap();
         res
     }
 }
@@ -154,14 +152,17 @@ fn main() {
 
     let mut rng = rand::thread_rng();
 
-    let POSTS_CSV: String = dataset.to_string().clone() + "posts_event_stream.csv";
-    let LIKES_CSV: String = dataset.to_string().clone() + "likes_event_stream.csv";
-    let COMMENTS_CSV: String = dataset.to_string().clone() + "comments_event_stream.csv";
+    let dataset = &std::env::args().collect::<Vec<_>>()[1];
+    println!("dataset is {}", dataset);
+
+    let posts_csv = dataset.clone() + "posts_event_stream.csv";
+    let likes_csv = dataset.clone() + "likes_event_stream.csv";
+    let comments_csv = dataset.clone() + "comments_event_stream.csv";
  
     let event_stream = EventStream::new(
-        POSTS_CSV,
-        LIKES_CSV,
-        COMMENTS_CSV
+        posts_csv,
+        likes_csv,
+        comments_csv
     );
 
     let mut prev_timestamp = None;
