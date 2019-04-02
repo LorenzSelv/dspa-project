@@ -14,9 +14,11 @@ use std::io::{BufRead, BufReader};
 use std::fs::File;
 use std::cmp::min;
 
-const POSTS_TOPIC: &'static str = "posts_events";
-const LIKES_TOPIC: &'static str = "likes_events";
-const COMMENTS_TOPIC: &'static str = "comments_events";
+const POSTS_TOPIC: &'static str = "posts";
+const LIKES_TOPIC: &'static str = "likes";
+const COMMENTS_TOPIC: &'static str = "comments";
+
+const dataset: &'static str = "../dataset/1k-users-sorted/streams/";
 
 const DELAY_PROB: f64 = 0.3;
 const MAX_DELAY_SECONDS: u64 = 360;
@@ -72,14 +74,20 @@ impl EventStream {
     fn new(posts_fn: String, likes_fn: String, comments_fn: String) -> EventStream {
         let get_reader = |name| BufReader::new(File::open(&name)
                                                .expect(&format!("file {:?} not found", name)));
-        EventStream {
+        let mut res = EventStream {
             posts_stream_reader: get_reader(posts_fn),
             likes_stream_reader: get_reader(likes_fn),
             comments_stream_reader: get_reader(comments_fn),
             post_event: None,
             like_event: None,
             comment_event: None
-        }
+        };
+
+        let mut buf = String::new();
+        res.posts_stream_reader.read_line(&mut buf);
+        res.likes_stream_reader.read_line(&mut buf);
+        res.comments_stream_reader.read_line(&mut buf);
+        res
     }
 }
 
@@ -95,7 +103,6 @@ impl Iterator for EventStream {
         let mut res: Option<Event> = None;
 
         let mut maybe_update = |other: &Event| {
-            println!("maybe update other={}", other.creation_date);
             if let Some(r) = res.clone() { res = Some(min(r, other.clone())); }
             else { res = Some(other.clone()); }
         };
@@ -131,11 +138,9 @@ fn main() {
     let handle = thread::spawn(move || {
 
         let delay = time::Duration::from_millis(MAX_DELAY_SECONDS*1000 / SPEEDUP_FACTOR); // TODO wrapper
-        let mut it = 0;
         loop {
             thread::sleep(delay);
             while let Ok(event) = rx.try_recv() {
-//                println!("delayed (it={}): {:?}", it, event);
                 prod1.send(
                     FutureRecord::to(event.topic)
                         .partition(0) // TODO
@@ -144,17 +149,19 @@ fn main() {
                         -1
                  );
             }
-            it += 1;
         }
     });
 
     let mut rng = rand::thread_rng();
+
+    let POSTS_CSV: String = dataset.to_string().clone() + "posts_event_stream.csv";
+    let LIKES_CSV: String = dataset.to_string().clone() + "likes_event_stream.csv";
+    let COMMENTS_CSV: String = dataset.to_string().clone() + "comments_event_stream.csv";
  
-    let home = "/home/lorenzo/".to_string();//dspa/project/dataset/1k-users-sorted/streams/";
     let event_stream = EventStream::new(
-        home.clone() + "posts_event_stream.csv",
-        home.clone() + "likes_event_stream.csv",
-        home.clone() + "comments_event_stream.csv"
+        POSTS_CSV,
+        LIKES_CSV,
+        COMMENTS_CSV
     );
 
     let mut prev_timestamp = None;
@@ -175,7 +182,6 @@ fn main() {
         if rng.gen_range(0.0, 1.0) < DELAY_PROB {
             tx.send(event).unwrap();
         } else {
-//            println!("ontime: {:?}", event);
             prod2.send(
                 FutureRecord::to(event.topic)
                     .partition(0) // TODO
