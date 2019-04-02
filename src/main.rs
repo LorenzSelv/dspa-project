@@ -1,16 +1,14 @@
-extern crate timely;
-use timely::dataflow::operators::{Inspect, Map};
-
 extern crate kafkaesque;
-
 extern crate rdkafka;
-
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 
+extern crate timely;
+use timely::dataflow::operators::{Concatenate, Inspect, Map};
+
 mod event;
-use event::{LikeEvent, CommentEvent, PostEvent};
+use event::{Event, LikeEvent, CommentEvent, PostEvent};
 
 mod kafka;
 
@@ -23,22 +21,30 @@ fn main() {
             
             let likes_stream = 
                 kafka::consumer::string_stream(scope, "likes")
-                    .map(|record: String| event::deserialize::<LikeEvent>(record));
+                    .map(|record: String| event::deserialize::<LikeEvent>(record))
+                    .map(|like| Event::Like(like));
 
             let comments_stream = 
                 kafka::consumer::string_stream(scope, "comments")
-                    .map(|record: String| event::deserialize::<CommentEvent>(record));
+                    .map(|record: String| event::deserialize::<CommentEvent>(record))
+                    .map(|comment| Event::Comment(comment));
 
             let posts_stream = 
                 kafka::consumer::string_stream(scope, "posts")
-                    .map(|record: String| event::deserialize::<PostEvent>(record));
+                    .map(|record: String| event::deserialize::<PostEvent>(record))
+                    .map(|post| Event::Post(post));
 
-            likes_stream
-                .inspect(|event: &LikeEvent| { println!("{:?}", event); });
-            comments_stream
-                .inspect(|event: &CommentEvent| { println!("{:?}", event); });
-            posts_stream
-                .inspect(|event: &PostEvent| { println!("{:?}", event); });
+            let streams = vec![likes_stream, comments_stream, posts_stream];
+
+            scope.concatenate(streams)
+                .inspect(|x| println!("seen {:?}", x));
+
+//            likes_stream
+//                .inspect(|event: &LikeEvent| { println!("{:?}", event); });
+//            comments_stream
+//                .inspect(|event: &CommentEvent| { println!("{:?}", event); });
+//            posts_stream
+//                .inspect(|event: &PostEvent| { println!("{:?}", event); });
         });
 
     }).expect("Timely computation failed somehow");

@@ -51,10 +51,10 @@ pub fn string_stream<'a> (
             let timestamp = date.timestamp() as u64;
 
             let time = *capability.time();
-            println!("cap.time() = {}", time);
+//            println!("cap.time() = {}", time);
             if timestamp - MAX_DELAY_SECONDS > time {
                 capability.downgrade(&(timestamp - MAX_DELAY_SECONDS));
-                println!("downgraded to {}", timestamp - MAX_DELAY_SECONDS);
+//                println!("downgraded to {}", timestamp - MAX_DELAY_SECONDS);
             }
 
             // Indicate that we are not yet done.

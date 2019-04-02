@@ -1,3 +1,10 @@
+#[derive(Debug,Clone)]
+pub enum Event {
+    Post(PostEvent),
+    Like(LikeEvent),
+    Comment(CommentEvent)
+}
+
 #[derive(Debug,Deserialize,Clone)]
 pub struct LikeEvent {
     person_id: u64,
@@ -34,7 +41,7 @@ pub struct PostEvent {
 }
 
 
-pub fn deserialize<T>(record: String) -> T 
+pub fn deserialize<T>(record: String) -> T
     where for <'a> T: serde::Deserialize<'a>
 {
     let mut reader = csv::ReaderBuilder::new()
