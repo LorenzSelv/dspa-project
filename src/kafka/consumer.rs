@@ -6,6 +6,11 @@ use timely::dataflow::Stream;
 use timely::dataflow::scopes::Child;
 use timely::communication::allocator::Generic;
 
+extern crate chrono;
+use chrono::{Utc,TimeZone};
+
+const MAX_DELAY_SECONDS: u64 = 360; // TODO this should be a command line arg
+
 pub fn string_stream<'a> (
     scope: &mut timely::dataflow::scopes::Child<'a, Worker<Generic>, u64>,
     topic: &'static str 
@@ -39,9 +44,19 @@ pub fn string_stream<'a> (
             output
                 .session(capability)
                 .give(text.to_string());
-            // We need some rule to advance timestamps ...
+
+            let date_str = text.split("|").collect::<Vec<_>>()[2].trim();
+            let date = Utc.datetime_from_str(date_str, "%FT%TZ")
+                   .or(Utc.datetime_from_str(date_str, "%FT%T%.3fZ")).expect("failed to parse");
+            let timestamp = date.timestamp() as u64;
+
             let time = *capability.time();
-            capability.downgrade(&(time + 1));
+            println!("cap.time() = {}", time);
+            if timestamp - MAX_DELAY_SECONDS > time {
+                capability.downgrade(&(timestamp - MAX_DELAY_SECONDS));
+                println!("downgraded to {}", timestamp - MAX_DELAY_SECONDS);
+            }
+
             // Indicate that we are not yet done.
             false
         }
