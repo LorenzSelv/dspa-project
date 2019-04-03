@@ -9,7 +9,7 @@ use timely::dataflow::{Stream, Scope};
 use timely::dataflow::operators::{Operator, Concatenate, Inspect, Map};
 use timely::dataflow::channels::pact::Pipeline;
 
-use std::cmp::max;
+use std::cmp::{min, max};
 use std::collections::HashMap;
 
 mod event;
@@ -17,21 +17,24 @@ use event::{Event, LikeEvent, CommentEvent, PostEvent};
 
 mod kafka;
 
+const ACTIVE_WINDOW_SECONDS: u64 = 12*3600;
+
 // TODO emit just the postId or the whole statistics structs? could be expensive
 // to emit them as output (probably need to clone)
 trait ActivePosts<G: Scope> {
-    fn active_posts(&self) -> Stream<G, u64>;
+    fn active_posts(&self, active_window_seconds: u64) -> Stream<G, u64>;
 }
 
 impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
 
-    fn active_posts(&self) -> Stream<G, u64> {
+    fn active_posts(&self, active_window_seconds: u64) -> Stream<G, u64> {
 
         // event ID --> post ID it refers to (root of the tree)
         let mut root_of = HashMap::<u64,u64>::new();
-
         // post ID --> timestamp of last event associated with it
         let mut last_timestamp = HashMap::<u64,u64>::new();
+
+        let mut first_notification = true;
 
         self.unary_notify(Pipeline, "ActivePosts", None, move |input, output, notificator| {
 
@@ -40,54 +43,74 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                 let mut buf = Vec::<Event>::new();
                 data.swap(&mut buf);
 
+                let mut min_t = std::u64::MAX;
                 for event in buf.drain(..) {
-                    match event {
+                    let cur_t = match event {
                         Event::Post(post) => {
-                            println!("post at timestamp {} -- {:?}", post.creation_date.timestamp(), post);
+                            let timestamp = post.creation_date.timestamp() as u64;
+                            println!("post at timestamp {} -- {:?}", timestamp, post);
                             root_of.insert(post.post_id, post.post_id);
-                            last_timestamp.insert(post.post_id,
-                                                  post.creation_date.timestamp() as u64);
+                            last_timestamp.insert(post.post_id, timestamp);
+                            
+                            timestamp
                         },
                         Event::Like(like) => {
-                            println!("like at timestamp {} -- {:?}", like.creation_date.timestamp(), like);
+                            let timestamp = like.creation_date.timestamp() as u64;
+                            println!("like at timestamp {} -- {:?}", timestamp, like);
                             // you can also like comments
                             let root_post_id = *root_of.get(&like.post_id).expect("TODO out of order");
 
-                            let cur = like.creation_date.timestamp() as u64;
                             match last_timestamp.get(&root_post_id) {
-                                Some(&prev) => last_timestamp.insert(root_post_id, max(prev, cur)),
-                                None => last_timestamp.insert(root_post_id, cur)
+                                Some(&prev) => last_timestamp.insert(root_post_id, max(prev, timestamp)),
+                                None => last_timestamp.insert(root_post_id, timestamp)
                             };
-
+                            
+                            timestamp
                         },
                         Event::Comment(comment) => {
-                            println!("comment at timestamp {} -- {:?}", comment.creation_date.timestamp(), comment);
+                            let timestamp = comment.creation_date.timestamp() as u64;
+                            println!("comment at timestamp {} -- {:?}", timestamp, comment);
                             let reply_to_id = comment.reply_to_post_id
                                           .or(comment.reply_to_comment_id).unwrap();
 
                             let root_post_id = *root_of.get(&reply_to_id).expect("TODO out of order");
                             root_of.insert(comment.comment_id, root_post_id);
 
-                            let cur = comment.creation_date.timestamp() as u64;
                             match last_timestamp.get(&root_post_id) {
-                                Some(&prev) => last_timestamp.insert(root_post_id, max(prev, cur)),
-                                None => last_timestamp.insert(root_post_id, cur)
+                                Some(&prev) => last_timestamp.insert(root_post_id, max(prev, timestamp)),
+                                None => last_timestamp.insert(root_post_id, timestamp)
                             };
+
+                            timestamp
                         }
-                    }
+                    };
+
+                    min_t = min(min_t, cur_t);
                 }
 
-                println!("========================");
-                println!("root_of -- {:?}", root_of);
-                println!("last_timestamp -- {:?}", last_timestamp);
-                println!("========================");
-
-//                // TODO when to request the notification ?
-//                notificator.notify_at(time.retain());
+                if first_notification {
+                    notificator.notify_at(time.delayed(&(min_t + 30*3600)));
+                    first_notification = false;
+                }
             });
 
             notificator.for_each(|time, _, _| {
-                println!("notified at time {}", *time.time());
+                let cur_t = *time.time();
+                println!("~~~~~~~~~~~~~~~~~~~~~~~~");
+                println!("notified at timestamp {}", cur_t);
+                println!("  root_of -- {:?}", root_of);
+                println!("  last_timestamp -- {:?}", last_timestamp);
+
+                let active_posts = last_timestamp.iter().filter_map(|(&post_id, &last_t)| {
+                    if last_t >= cur_t - active_window_seconds { Some(post_id) }
+                    else { None }
+                }).collect::<Vec<_>>();
+
+                println!("  active_posts -- {:?}", active_posts);
+                println!("~~~~~~~~~~~~~~~~~~~~~~~~");
+
+                // set next notification in 30 minutes
+                notificator.clone().notify_at(time.delayed(&(cur_t + 30*3600)));
             });
 
         })
@@ -105,7 +128,7 @@ fn main() {
                     .map(|record: String| event::deserialize(record));
 
             events_stream
-                .active_posts();
+                .active_posts(ACTIVE_WINDOW_SECONDS);
 //                .inspect(|event: &Event| { println!("{:?}", event); });
         });
 
