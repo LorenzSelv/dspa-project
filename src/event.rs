@@ -1,9 +1,9 @@
 // Generic event with timestamp (u64)
 #[derive(Debug,Clone)]
 pub enum Event {
-    Post(u64, PostEvent),
-    Like(u64, LikeEvent),
-    Comment(u64, CommentEvent)
+    Post(PostEvent),
+    Like(LikeEvent),
+    Comment(CommentEvent)
 }
 
 #[derive(Debug,Deserialize,Clone)]
