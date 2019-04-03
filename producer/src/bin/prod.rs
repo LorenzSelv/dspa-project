@@ -14,9 +14,7 @@ use std::io::{BufRead, BufReader};
 use std::fs::File;
 use std::cmp::min;
 
-const POSTS_TOPIC: &'static str = "posts";
-const LIKES_TOPIC: &'static str = "likes";
-const COMMENTS_TOPIC: &'static str = "comments";
+const TOPIC: &'static str = "events";
 
 const DELAY_PROB: f64 = 0.3;
 const MAX_DELAY_SECONDS: u64 = 360;
@@ -27,12 +25,10 @@ struct Event {
     timestamp: i64,
     payload: String,
     creation_date: DateTime<Utc>,
-    topic: &'static str,
-//    partition: TODO here ?
 }
 
 impl Event {
-    fn from_record(record: String, topic: &'static str) -> Event {
+    fn from_record(record: String) -> Event {
         // Creation date is always the 3rd field
         let date_str = record.split("|").collect::<Vec<_>>()[2].trim();
         let date = Utc.datetime_from_str(date_str, "%FT%TZ")
@@ -41,18 +37,17 @@ impl Event {
         Event {
             payload: record.trim().to_string(),
             creation_date: date,
-            timestamp: date.timestamp(),
-            topic: topic 
+            timestamp: date.timestamp()
         }
     }
 }
 
-fn read_event(reader: &mut BufReader<File>, topic: &'static str) -> Option<Event> {
+fn read_event(reader: &mut BufReader<File>) -> Option<Event> {
     let mut record = String::new();
     match reader.read_line(&mut record) {
         Err(err) => { println!("ERR {}", err); None },
         Ok(0)    => { println!("EOF"); None },
-        Ok(_)    => Some(Event::from_record(record, topic))
+        Ok(_)    => Some(Event::from_record(record))
     }
 }
 
@@ -94,9 +89,9 @@ impl Iterator for EventStream {
 
     fn next(&mut self) -> Option<Event> {
         // If an event "slot" is None, try to fill it by reading a new record
-        if let None = &self.post_event { self.post_event = read_event(&mut self.posts_stream_reader, POSTS_TOPIC); }
-        if let None = &self.like_event { self.like_event = read_event(&mut self.likes_stream_reader, LIKES_TOPIC); }
-        if let None = &self.comment_event { self.comment_event = read_event(&mut self.comments_stream_reader, COMMENTS_TOPIC); }
+        if let None = &self.post_event { self.post_event = read_event(&mut self.posts_stream_reader); }
+        if let None = &self.like_event { self.like_event = read_event(&mut self.likes_stream_reader); }
+        if let None = &self.comment_event { self.comment_event = read_event(&mut self.comments_stream_reader); }
 
         let mut res: Option<Event> = None;
 
@@ -140,7 +135,7 @@ fn main() {
             thread::sleep(delay);
             while let Ok(event) = rx.try_recv() {
                 prod1.send(
-                    FutureRecord::to(event.topic)
+                    FutureRecord::to(TOPIC)
                         .partition(0) // TODO
                         .payload(&event.payload)
                         .key("key"),
@@ -184,7 +179,7 @@ fn main() {
             tx.send(event).unwrap();
         } else {
             prod2.send(
-                FutureRecord::to(event.topic)
+                FutureRecord::to(TOPIC)
                     .partition(0) // TODO
                     .payload(&event.payload)
                     .key("key"),

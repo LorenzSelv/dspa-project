@@ -41,26 +41,38 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                 data.swap(&mut buf);
 
                 for event in buf.drain(..) {
-                    println!("event -- {:?}", event);
                     match event {
                         Event::Post(post) => {
+                            println!("post at timestamp {} -- {:?}", post.creation_date.timestamp(), post);
                             root_of.insert(post.post_id, post.post_id);
                             last_timestamp.insert(post.post_id,
                                                   post.creation_date.timestamp() as u64);
                         },
                         Event::Like(like) => {
-                            // TODO can you like comments / replies ?
+                            println!("like at timestamp {} -- {:?}", like.creation_date.timestamp(), like);
+                            // you can also like comments
                             let root_post_id = *root_of.get(&like.post_id).expect("TODO out of order");
-                            let prev_t = last_timestamp.entry(root_post_id).or_insert(0); // TODO handle out of order
-                            *prev_t = max(*prev_t, like.creation_date.timestamp() as u64);
+
+                            let cur = like.creation_date.timestamp() as u64;
+                            match last_timestamp.get(&root_post_id) {
+                                Some(&prev) => last_timestamp.insert(root_post_id, max(prev, cur)),
+                                None => last_timestamp.insert(root_post_id, cur)
+                            };
+
                         },
                         Event::Comment(comment) => {
+                            println!("comment at timestamp {} -- {:?}", comment.creation_date.timestamp(), comment);
                             let reply_to_id = comment.reply_to_post_id
                                           .or(comment.reply_to_comment_id).unwrap();
 
                             let root_post_id = *root_of.get(&reply_to_id).expect("TODO out of order");
-                            let prev_t = last_timestamp.entry(root_post_id).or_insert(0); // TODO again
-                            *prev_t = max(*prev_t, comment.creation_date.timestamp() as u64);
+                            root_of.insert(comment.comment_id, root_post_id);
+
+                            let cur = comment.creation_date.timestamp() as u64;
+                            match last_timestamp.get(&root_post_id) {
+                                Some(&prev) => last_timestamp.insert(root_post_id, max(prev, cur)),
+                                None => last_timestamp.insert(root_post_id, cur)
+                            };
                         }
                     }
                 }
@@ -88,33 +100,13 @@ fn main() {
 
         worker.dataflow::<u64,_,_>(|scope| {
 
-            let likes_stream =
-                kafka::consumer::string_stream(scope, "likes")
-                    .map(|record: String| event::deserialize::<LikeEvent>(record))
-                    .map(|like| Event::Like(like));
+            let events_stream =
+                kafka::consumer::string_stream(scope, "events")
+                    .map(|record: String| event::deserialize(record));
 
-            let comments_stream =
-                kafka::consumer::string_stream(scope, "comments")
-                    .map(|record: String| event::deserialize::<CommentEvent>(record))
-                    .map(|comment| Event::Comment(comment));
-
-            let posts_stream =
-                kafka::consumer::string_stream(scope, "posts")
-                    .map(|record: String| event::deserialize::<PostEvent>(record))
-                    .map(|post| Event::Post(post));
-
-            let streams = vec![likes_stream, comments_stream, posts_stream];
-
-            scope.concatenate(streams) // TODO reorder or produce and read from a single topic ?
-//                .active_posts();
-                .inspect(|x| println!("seen {:?}", x));
-
-//            likes_stream
-//                .inspect(|event: &LikeEvent| { println!("{:?}", event); });
-//            comments_stream
-//                .inspect(|event: &CommentEvent| { println!("{:?}", event); });
-//            posts_stream
-//                .inspect(|event: &PostEvent| { println!("{:?}", event); });
+            events_stream
+                .active_posts();
+//                .inspect(|event: &Event| { println!("{:?}", event); });
         });
 
     }).expect("Timely computation failed somehow");
