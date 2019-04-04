@@ -12,6 +12,11 @@ use timely::dataflow::channels::pact::Pipeline;
 use std::cmp::{min, max};
 use std::collections::HashMap;
 
+use std::rc::Rc;
+use std::cell::Ref;
+use std::cell::RefCell;
+
+
 mod event;
 use event::{Event, LikeEvent, CommentEvent, PostEvent};
 
@@ -38,6 +43,8 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
 
         self.unary_notify(Pipeline, "ActivePosts", None, move |input, output, notificator| {
 
+            println!("⏩ enter ActivePosts");
+
             input.for_each(|time, data| {
 
                 let mut buf = Vec::<Event>::new();
@@ -48,7 +55,7 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                     let cur_t = match event {
                         Event::Post(post) => {
                             let timestamp = post.creation_date.timestamp() as u64;
-                            println!("post at timestamp {} -- {:?}", timestamp, post);
+                            println!("➕ post at timestamp {} -- id = {}, date = {:?}", timestamp, post.post_id, post.creation_date);
                             root_of.insert(post.post_id, post.post_id);
                             last_timestamp.insert(post.post_id, timestamp);
                             
@@ -56,7 +63,7 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                         },
                         Event::Like(like) => {
                             let timestamp = like.creation_date.timestamp() as u64;
-                            println!("like at timestamp {} -- {:?}", timestamp, like);
+                            println!("➕ like at timestamp {} -- to post_id = {}, date = {:?}", timestamp, like.post_id, like.creation_date);
                             // you can also like comments
                             let root_post_id = *root_of.get(&like.post_id).expect("TODO out of order");
 
@@ -69,7 +76,7 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                         },
                         Event::Comment(comment) => {
                             let timestamp = comment.creation_date.timestamp() as u64;
-                            println!("comment at timestamp {} -- {:?}", timestamp, comment);
+                            println!("➕ comment at timestamp {} -- id = {}, date = {:?}", timestamp, comment.comment_id, comment.creation_date);
                             let reply_to_id = comment.reply_to_post_id
                                           .or(comment.reply_to_comment_id).unwrap();
 
@@ -86,18 +93,28 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                     };
 
                     min_t = min(min_t, cur_t);
+                    println!("🔵 Current state");
+                    println!("   root_of -- {:?}", root_of);
+                    println!("   last_timestamp -- {:?}", last_timestamp);
                 }
 
                 if first_notification {
-                    notificator.notify_at(time.delayed(&(min_t + 30*3600)));
+                    println!("🔜 setting notification at time {}", min_t +30*60);
+                    notificator.notify_at(time.delayed(&(min_t + 30*60)));
                     first_notification = false;
                 }
             });
 
+            let mut notified_time = None;
+            let ref1 = Rc::new(RefCell::new(notified_time));
+            let ref2 = Rc::clone(&ref1);
+
             notificator.for_each(|time, _, _| {
                 let cur_t = *time.time();
+                let mut borrow = ref1.borrow_mut();
+                *borrow = Some(time.clone());
                 println!("~~~~~~~~~~~~~~~~~~~~~~~~");
-                println!("notified at timestamp {}", cur_t);
+                println!("🆘 🆘 🆘 notified at timestamp {}", cur_t);
                 println!("  root_of -- {:?}", root_of);
                 println!("  last_timestamp -- {:?}", last_timestamp);
 
@@ -109,10 +126,15 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                 println!("  active_posts -- {:?}", active_posts);
                 println!("~~~~~~~~~~~~~~~~~~~~~~~~");
 
-                // set next notification in 30 minutes
-                notificator.clone().notify_at(time.delayed(&(cur_t + 30*3600)));
             });
 
+            // set next notification in 30 minutes
+            let borrow = ref2.borrow();
+            if let Some(cap) = &*borrow {
+                println!("🔜 setting notification at time {}", *cap.time() +30*60);
+                notificator.notify_at(cap.delayed(&(*cap.time() + 30*60)));
+            }
+            println!("⏪ exit ActivePosts");
         })
     }
 }

@@ -9,7 +9,7 @@ use timely::communication::allocator::Generic;
 extern crate chrono;
 use chrono::{Utc,TimeZone};
 
-const MAX_DELAY_SECONDS: u64 = 360; // TODO this should be a command line arg
+const MAX_DELAY_SECONDS: u64 = 0; // TODO this should be a command line arg
 
 pub fn string_stream<'a> (
     scope: &mut timely::dataflow::scopes::Child<'a, Worker<Generic>, u64>,

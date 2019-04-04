@@ -17,8 +17,8 @@ use std::cmp::min;
 const TOPIC: &'static str = "events";
 
 const DELAY_PROB: f64 = 0.3;
-const MAX_DELAY_SECONDS: u64 = 360;
-const SPEEDUP_FACTOR: u64 = 3600;
+const MAX_DELAY_SECONDS: u64 = 0;
+const SPEEDUP_FACTOR: u64 = 600;
 
 #[derive(Debug,Clone,Ord,PartialOrd,PartialEq,Eq)]
 struct Event {
