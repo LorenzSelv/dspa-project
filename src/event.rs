@@ -26,9 +26,10 @@ pub struct LikeEvent {
 
 impl ToString for LikeEvent {
     fn to_string(&self) -> String {
-        format!("like at timestamp {} -- to post_id = {}, date = {}",
+        format!("like at timestamp {} -- to post_id = {}, by = {}, date = {}",
                 self.creation_date.timestamp(),
                 self.post_id,
+                self.person_id,
                 self.creation_date)
     }
 }
@@ -48,11 +49,12 @@ pub struct CommentEvent {
 
 impl ToString for CommentEvent {
     fn to_string(&self) -> String {
-        format!("comment at timestamp {} -- id = {}, to reply_to_{} = {}, date = {}",
+        format!("comment at timestamp {} -- id = {}, reply_to_{} = {}, by = {}, date = {}",
                 self.creation_date.timestamp(),
                 self.comment_id,
                 if self.reply_to_post_id != None { "post" } else { "comment" },
                 self.reply_to_post_id.or(self.reply_to_comment_id).unwrap(),
+                self.person_id,
                 self.creation_date)
     }
 }
@@ -74,9 +76,10 @@ pub struct PostEvent {
 
 impl ToString for PostEvent {
     fn to_string(&self) -> String {
-        format!("post at timestamp {} -- id = {}, date = {}",
+        format!("post at timestamp {} -- id = {}, by = {}, date = {}",
                 self.creation_date.timestamp(),
                 self.post_id,
+                self.person_id,
                 self.creation_date)
     }
 }
