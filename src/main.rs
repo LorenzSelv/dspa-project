@@ -6,19 +6,17 @@ extern crate serde_derive;
 
 extern crate timely;
 use timely::dataflow::{Stream, Scope};
-use timely::dataflow::operators::{Operator, Concatenate, Inspect, Map};
+use timely::dataflow::operators::{Operator, Map};
 use timely::dataflow::channels::pact::Pipeline;
 
 use std::cmp::{min, max};
 use std::collections::HashMap;
 
 use std::rc::Rc;
-use std::cell::Ref;
 use std::cell::RefCell;
 
-
 mod event;
-use event::{Event, LikeEvent, CommentEvent, PostEvent};
+use event::Event;
 
 mod kafka;
 
@@ -41,9 +39,9 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
 
         let mut first_notification = true;
 
-        self.unary_notify(Pipeline, "ActivePosts", None, move |input, output, notificator| {
+        self.unary_notify(Pipeline, "ActivePosts", None, move |input, _output, notificator| {
 
-            println!("⏩ enter ActivePosts");
+//            println!("⏩ enter ActivePosts");
 
             input.for_each(|time, data| {
 
@@ -99,13 +97,13 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                 }
 
                 if first_notification {
-                    println!("🔜 setting notification at time {}", min_t +30*60);
+//                    println!("🔜 setting notification at time {}", min_t +30*60);
                     notificator.notify_at(time.delayed(&(min_t + 30*60)));
                     first_notification = false;
                 }
             });
 
-            let mut notified_time = None;
+            let notified_time = None;
             let ref1 = Rc::new(RefCell::new(notified_time));
             let ref2 = Rc::clone(&ref1);
 
@@ -131,10 +129,10 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
             // set next notification in 30 minutes
             let borrow = ref2.borrow();
             if let Some(cap) = &*borrow {
-                println!("🔜 setting notification at time {}", *cap.time() +30*60);
+//                println!("🔜 setting notification at time {}", *cap.time() +30*60);
                 notificator.notify_at(cap.delayed(&(*cap.time() + 30*60)));
             }
-            println!("⏪ exit ActivePosts");
+//            println!("⏪ exit ActivePosts");
         })
     }
 }

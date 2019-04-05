@@ -13,7 +13,7 @@ const MAX_DELAY_SECONDS: u64 = 0; // TODO this should be a command line arg
 
 pub fn string_stream<'a> (
     scope: &mut timely::dataflow::scopes::Child<'a, Worker<Generic>, u64>,
-    topic: &'static str 
+    topic: &'static str
 ) -> Stream<Child<'a, Worker<Generic>, u64>, String>
 {
     let brokers = "localhost:9092";
@@ -41,20 +41,25 @@ pub fn string_stream<'a> (
 
         // If the bytes are utf8, convert to string and send.
         if let Ok(text) = std::str::from_utf8(bytes) {
-            output
-                .session(capability)
-                .give(text.to_string());
 
-            let date_str = text.split("|").collect::<Vec<_>>()[2].trim();
-            let date = Utc.datetime_from_str(date_str, "%FT%TZ")
-                   .or(Utc.datetime_from_str(date_str, "%FT%T%.3fZ")).expect("failed to parse");
-            let timestamp = date.timestamp() as u64;
+            let timestamp =
+                if text.starts_with("WATERMARK") { // format is WATERMARK|<timestamp>
+                    let t = text.split("|").collect::<Vec<_>>()[1].trim();
+                    t.parse::<u64>().unwrap()
+                } else {
+                    output.session(capability).give(text.to_string());
+                    let date_str = text.split("|").collect::<Vec<_>>()[2].trim();
+                    let date = Utc.datetime_from_str(date_str, "%FT%TZ")
+                           .or(Utc.datetime_from_str(date_str, "%FT%T%.3fZ"))
+                           .expect("failed to parse");
+
+                    date.timestamp() as u64
+                };
 
             let time = *capability.time();
-//            println!("cap.time() = {}", time);
             if timestamp - MAX_DELAY_SECONDS > time {
                 capability.downgrade(&(timestamp - MAX_DELAY_SECONDS));
-//                println!("downgraded to {}", timestamp - MAX_DELAY_SECONDS);
+                println!("downgraded to {}", timestamp - MAX_DELAY_SECONDS);
             }
 
             // Indicate that we are not yet done.
