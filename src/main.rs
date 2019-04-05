@@ -24,6 +24,36 @@ mod kafka;
 
 const ACTIVE_WINDOW_SECONDS: u64 = 12*3600;
 
+#[derive(Debug,Clone)]
+struct Stats {
+    num_comments: u64,
+    num_replies: u64,
+    unique_people: HashSet<u64>
+}
+
+impl Stats {
+    fn new() -> Stats {
+        Stats {
+            num_comments: 0,
+            num_replies: 0,
+            unique_people: HashSet::new()
+        }
+    }
+
+    fn new_comment(&mut self) { self.num_comments += 1; }
+    fn new_reply(&mut self)   { self.num_replies  += 1; }
+    fn new_person(&mut self, id: u64)  { self.unique_people.insert(id); }
+}
+
+fn dump_stats(stats: &HashMap<u64,Stats>, tabs: usize) {
+    let spaces = " ".repeat(4*tabs);
+    println!("{}----", spaces);
+    for (post_id, stats) in stats {
+        println!("{}post_id = {} -- {:?}", spaces, post_id, stats);
+    }
+    println!("{}----", spaces);
+}
+
 // TODO emit just the postId or the whole statistics structs? could be expensive
 // to emit them as output (probably need to clone)
 trait ActivePosts<G: Scope> {
@@ -38,11 +68,8 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
         let mut root_of = HashMap::<u64,u64>::new();
         // post ID --> timestamp of last event associated with it
         let mut last_timestamp = HashMap::<u64,u64>::new();
-
-        /* post stats */
-        let mut num_comments  = HashMap::<u64,u64>::new();
-        let mut num_replies   = HashMap::<u64,u64>::new();
-        let mut unique_people = HashMap::<u64,HashSet<u64>>::new();
+        // post ID --> stats
+        let mut stats = HashMap::<u64,Stats>::new();
 
         let mut first_notification = true;
 
@@ -62,10 +89,8 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                             root_of.insert(post.post_id, post.post_id);
                             last_timestamp.insert(post.post_id, timestamp);
 
-                            num_comments.insert(post.post_id, 0);
-                            num_replies.insert(post.post_id, 0);
-                            unique_people.insert(post.post_id, HashSet::new());
-                            unique_people.get_mut(&post.post_id).unwrap().insert(post.person_id);
+                            stats.insert(post.post_id, Stats::new());
+                            stats.get_mut(&post.post_id).unwrap().new_person(post.person_id);
 
                             timestamp
                         },
@@ -78,7 +103,7 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                                 None => last_timestamp.insert(root_post_id, timestamp)
                             };
 
-                            unique_people.get_mut(&root_post_id).unwrap().insert(like.person_id);
+                            stats.get_mut(&root_post_id).unwrap().new_person(like.person_id);
 
                             timestamp
                         },
@@ -96,12 +121,12 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                             };
 
                             if comment.reply_to_post_id != None {
-                                *num_comments.get_mut(&root_post_id).unwrap() += 1;
+                                stats.get_mut(&root_post_id).unwrap().new_comment();
                             } else {
-                                *num_replies.get_mut(&root_post_id).unwrap() += 1;
+                                stats.get_mut(&root_post_id).unwrap().new_reply();
                             }
 
-                            unique_people.get_mut(&root_post_id).unwrap().insert(comment.person_id);
+                            stats.get_mut(&root_post_id).unwrap().new_person(comment.person_id);
 
                             timestamp
                         }
@@ -109,11 +134,9 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
 
                     min_t = min(min_t, cur_t);
                     println!("{}", "Current state".bold().blue());
-                    println!("   root_of -- {:?}", root_of);
-                    println!("   last_timestamp -- {:?}", last_timestamp);
-                    println!("   num_comments   -- {:?}", num_comments);
-                    println!("   num_replies    -- {:?}", num_replies);
-                    println!("   unique_people  -- {:?}", unique_people);
+                    println!("    root_of -- {:?}", root_of);
+                    println!("    last_timestamp -- {:?}", last_timestamp);
+                    dump_stats(&stats, 1);
                 }
 
                 if first_notification {
@@ -132,11 +155,9 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                 *borrow = Some(time.clone());
                 println!("~~~~~~~~~~~~~~~~~~~~~~~~");
                 println!("{} at timestamp {}", "notified".bold().green(), cur_t);
-                println!("   root_of -- {:?}", root_of);
-                println!("   last_timestamp -- {:?}", last_timestamp);
-                println!("   num_comments   -- {:?}", num_comments);
-                println!("   num_replies    -- {:?}", num_replies);
-                println!("   unique_people  -- {:?}", unique_people);
+                println!("    root_of -- {:?}", root_of);
+                println!("    last_timestamp -- {:?}", last_timestamp);
+                dump_stats(&stats, 1);
 
                 let active_posts = last_timestamp.iter().filter_map(|(&post_id, &last_t)| {
                     if last_t >= cur_t - active_window_seconds { Some(post_id) }
@@ -146,7 +167,7 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                 let mut session = output.session(&time);
                 session.give(active_posts.clone());
 
-                println!("   active_posts    -- {:?}", active_posts);
+                println!("    active_posts    -- {:?}", active_posts);
                 println!("~~~~~~~~~~~~~~~~~~~~~~~~");
 
             });
