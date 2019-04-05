@@ -57,12 +57,12 @@ fn dump_stats(stats: &HashMap<u64,Stats>, tabs: usize) {
 // TODO emit just the postId or the whole statistics structs? could be expensive
 // to emit them as output (probably need to clone)
 trait ActivePosts<G: Scope> {
-    fn active_posts(&self, active_window_seconds: u64) -> Stream<G, Vec<u64>>;
+    fn active_posts(&self, active_window_seconds: u64) -> Stream<G, HashMap<u64,Stats>>;
 }
 
 impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
 
-    fn active_posts(&self, active_window_seconds: u64) -> Stream<G, Vec<u64>> {
+    fn active_posts(&self, active_window_seconds: u64) -> Stream<G, HashMap<u64,Stats>> {
 
         // event ID --> post ID it refers to (root of the tree)
         let mut root_of = HashMap::<u64,u64>::new();
@@ -162,10 +162,14 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                 let active_posts = last_timestamp.iter().filter_map(|(&post_id, &last_t)| {
                     if last_t >= cur_t - active_window_seconds { Some(post_id) }
                     else { None }
-                }).collect::<Vec<_>>();
+                }).collect::<HashSet<_>>();
+
+                let active_posts_stats = stats.clone().into_iter()
+                    .filter(|&(id, _)| active_posts.contains(&id))
+                    .collect::<HashMap<_,_>>();
 
                 let mut session = output.session(&time);
-                session.give(active_posts.clone());
+                session.give(active_posts_stats);
 
                 println!("    active_posts    -- {:?}", active_posts);
                 println!("~~~~~~~~~~~~~~~~~~~~~~~~");
@@ -193,7 +197,10 @@ fn main() {
 
             events_stream
                 .active_posts(ACTIVE_WINDOW_SECONDS)
-                .inspect(|active_ids: &Vec<u64>| { println!("{} {:?}", "inspect".bold().red(), active_ids); });
+                .inspect(|stats: &HashMap<u64,Stats>| {
+                    println!("{}", "inspect".bold().red());
+                    dump_stats(stats, 1);
+                });
         });
 
     }).expect("Timely computation failed somehow");
