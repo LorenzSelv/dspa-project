@@ -19,7 +19,7 @@ const TOPIC: &'static str = "events";
 const DELAY_PROB: f64 = 0.0;
 const MAX_DELAY_SECONDS: u64 = 0;
 const SPEEDUP_FACTOR: u64 = 600;
-const WATERMARK_INTERVAL: u64 = 10*60; // every 10 minutes
+const WATERMARK_INTERVAL: u64 = 4*60; // every 10 minutes
 
 #[derive(Debug,Clone,Ord,PartialOrd,PartialEq,Eq)]
 struct Event {

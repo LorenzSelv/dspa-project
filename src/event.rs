@@ -1,3 +1,5 @@
+use std::string::ToString;
+
 #[derive(Debug,Clone)]
 pub enum Event {
     Post(PostEvent),
@@ -5,11 +7,30 @@ pub enum Event {
     Comment(CommentEvent)
 }
 
+impl ToString for Event {
+    fn to_string(&self) -> String {
+        match self {
+            Event::Post(post) => post.to_string(),
+            Event::Like(like) => like.to_string(),
+            Event::Comment(comm) => comm.to_string(),
+        }
+    }
+}
+
 #[derive(Debug,Deserialize,Clone)]
 pub struct LikeEvent {
     pub person_id: u64,
     pub post_id: u64,
     pub creation_date: chrono::DateTime<chrono::Utc>
+}
+
+impl ToString for LikeEvent {
+    fn to_string(&self) -> String {
+        format!("like at timestamp {} -- to post_id = {}, date = {}",
+                self.creation_date.timestamp(),
+                self.post_id,
+                self.creation_date)
+    }
 }
 
 #[derive(Debug,Deserialize,Clone)]
@@ -25,6 +46,17 @@ pub struct CommentEvent {
     pub place_id: u64
 }
 
+impl ToString for CommentEvent {
+    fn to_string(&self) -> String {
+        format!("comment at timestamp {} -- id = {}, to reply_to_{} = {}, date = {}",
+                self.creation_date.timestamp(),
+                self.comment_id,
+                if self.reply_to_post_id != None { "post" } else { "comment" },
+                self.reply_to_post_id.or(self.reply_to_comment_id).unwrap(),
+                self.creation_date)
+    }
+}
+
 #[derive(Debug,Deserialize,Clone)]
 pub struct PostEvent {
     pub post_id: u64,
@@ -38,6 +70,15 @@ pub struct PostEvent {
     pub tags: Option<String>, // TODO should be Vec<u64>> #[serde(flatten)]
     pub forum_id: u64,
     pub place_id: u64
+}
+
+impl ToString for PostEvent {
+    fn to_string(&self) -> String {
+        format!("post at timestamp {} -- id = {}, date = {}",
+                self.creation_date.timestamp(),
+                self.post_id,
+                self.creation_date)
+    }
 }
 
 
