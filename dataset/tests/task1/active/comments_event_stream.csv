@@ -1,7 +1,7 @@
 id|personId|creationDate|locationIP|browserUsed|content|reply_to_postId|reply_to_commentId|placeId
 200|2|2019-04-02T00:07:00Z|location|browser|comment 200 content|100||0
-201|1|2019-04-02T00:35:00Z|location|browser|comment 201 content|100||0
+201|1|2019-04-02T00:37:00Z|location|browser|comment 201 content|100||0
 202|0|2019-04-02T02:03:00Z|location|browser|comment 202 content||200|0
-203|0|2019-04-02T02:03:00Z|location|browser|comment 203 content|101||0
+203|0|2019-04-02T02:04:00Z|location|browser|comment 203 content|101||0
 204|1|2019-04-02T02:05:00Z|location|browser|comment 204 content||203|0
-205|0|2019-04-02T02:05:00Z|location|browser|comment 201 content||203|0
+205|0|2019-04-02T02:08:00Z|location|browser|comment 201 content||203|0

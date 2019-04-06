@@ -9,7 +9,14 @@ use timely::communication::allocator::Generic;
 extern crate chrono;
 use chrono::{Utc,TimeZone};
 
-const MAX_DELAY_SECONDS: u64 = 0; // TODO this should be a command line arg
+lazy_static! {
+    static ref SETTINGS: config::Config = {
+        let mut s = config::Config::default();
+        s.merge(config::File::with_name("Settings")).unwrap();
+        s
+    };
+    static ref MAX_DELAY_SEC: u64 = SETTINGS.get::<u64>("MAX_DELAY_SEC").unwrap();
+}
 
 pub fn string_stream<'a> (
     scope: &mut timely::dataflow::scopes::Child<'a, Worker<Generic>, u64>,
@@ -57,9 +64,9 @@ pub fn string_stream<'a> (
                 };
 
             let time = *capability.time();
-            if timestamp - MAX_DELAY_SECONDS > time {
-                capability.downgrade(&(timestamp - MAX_DELAY_SECONDS));
-                println!("downgraded to {}", timestamp - MAX_DELAY_SECONDS);
+            if timestamp - *MAX_DELAY_SEC > time {
+                capability.downgrade(&(timestamp - *MAX_DELAY_SEC));
+                println!("downgraded to {}", timestamp - *MAX_DELAY_SEC);
             }
 
             // Indicate that we are not yet done.
