@@ -1,3 +1,7 @@
+#![allow(non_snake_case)]
+#[macro_use]
+extern crate lazy_static;
+
 extern crate rand;
 use rand::Rng;
 
@@ -8,18 +12,26 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 extern crate chrono;
 use chrono::{DateTime,Utc,TimeZone,Duration};
 
+extern crate config;
+
 use std::{thread, time};
 use std::sync::mpsc;
 use std::io::{BufRead, BufReader};
 use std::fs::File;
 use std::cmp::min;
 
-const TOPIC: &'static str = "events";
-
-const DELAY_PROB: f64 = 0.0;
-const MAX_DELAY_SECONDS: u64 = 0;
-const SPEEDUP_FACTOR: u64 = 600;
-const WATERMARK_INTERVAL: u64 = 4*60; // every 10 minutes
+lazy_static! {
+    static ref SETTINGS: config::Config = {
+        let mut s = config::Config::default();
+        s.merge(config::File::with_name("../Settings")).unwrap();
+        s
+    };
+    static ref TOPIC: String = SETTINGS.get::<String>("TOPIC").unwrap();
+    static ref DELAY_PROB: f64 = SETTINGS.get::<f64>("DELAY_PROB").unwrap();
+    static ref MAX_DELAY_SEC: u64 = SETTINGS.get::<u64>("MAX_DELAY_SEC").unwrap();
+    static ref SPEEDUP_FACTOR: u64 = SETTINGS.get::<u64>("SPEEDUP_FACTOR").unwrap();
+    static ref WATERMARK_INTERVAL_MIN: u64 = SETTINGS.get::<u64>("WATERMARK_INTERVAL_MIN").unwrap();
+}
 
 #[derive(Debug,Clone,Ord,PartialOrd,PartialEq,Eq)]
 struct Event {
@@ -89,10 +101,10 @@ impl EventStream {
 }
 
 fn next_watermark(cur: &Event) -> Option<Event> {
-    let duration = Duration::seconds(WATERMARK_INTERVAL as i64);
+    let duration = Duration::minutes(*WATERMARK_INTERVAL_MIN as i64);
     let date = cur.creation_date.checked_add_signed(duration).unwrap();
     Some(Event {
-        timestamp: cur.timestamp + WATERMARK_INTERVAL,
+        timestamp: cur.timestamp + *WATERMARK_INTERVAL_MIN*60,
         payload: format!("WATERMARK|{}", date.timestamp()),
         creation_date: date
     })
@@ -135,8 +147,11 @@ impl Iterator for EventStream {
     }
 }
 
-
 fn main() {
+    let args = std::env::args().collect::<Vec<_>>();
+    assert!(args.len() == 2, "specify dataset as command line arg");
+    let dataset = &args[1];
+    println!("dataset is {}", dataset);
 
     let prod1: FutureProducer = ClientConfig::new()
         .set("bootstrap.servers", "localhost:9092")
@@ -150,14 +165,13 @@ fn main() {
     let (tx, rx) = mpsc::channel::<Event>();
 
     let handle = thread::spawn(move || {
-
-        let delay = time::Duration::from_millis(MAX_DELAY_SECONDS*1000 / SPEEDUP_FACTOR); // TODO wrapper
+        let delay = time::Duration::from_millis(*MAX_DELAY_SEC*1000 / *SPEEDUP_FACTOR); // TODO wrapper
         loop {
             thread::sleep(delay);
             while let Ok(event) = rx.try_recv() {
                 println!("event is -- {:?}", event.creation_date);
                 prod1.send(
-                    FutureRecord::to(TOPIC)
+                    FutureRecord::to(&TOPIC)
                         .partition(0) // TODO
                         .payload(&event.payload)
                         .key("key"),
@@ -167,21 +181,13 @@ fn main() {
         }
     });
 
-    let mut rng = rand::thread_rng();
-
-    let dataset = &std::env::args().collect::<Vec<_>>()[1];
-    println!("dataset is {}", dataset);
-
-    let posts_csv = dataset.clone() + "posts_event_stream.csv";
-    let likes_csv = dataset.clone() + "likes_event_stream.csv";
-    let comments_csv = dataset.clone() + "comments_event_stream.csv";
-
     let event_stream = EventStream::new(
-        posts_csv,
-        likes_csv,
-        comments_csv
+        dataset.clone() + "posts_event_stream.csv",
+        dataset.clone() + "likes_event_stream.csv",
+        dataset.clone() + "comments_event_stream.csv",
     );
 
+    let mut rng = rand::thread_rng();
     let mut prev_timestamp = None;
 
     for event in event_stream {
@@ -190,19 +196,19 @@ fn main() {
             None => 0,
             Some(pt) => {
                 assert!(event.timestamp >= pt);
-                (event.timestamp - pt) * 1000 / SPEEDUP_FACTOR
+                (event.timestamp - pt) * 1000 / *SPEEDUP_FACTOR
             }
         };
 
         prev_timestamp = Some(event.timestamp);
         thread::sleep(time::Duration::from_millis(delta));
 
-        if rng.gen_range(0.0, 1.0) < DELAY_PROB {
+        if rng.gen_range(0.0, 1.0) < *DELAY_PROB {
             tx.send(event).unwrap();
         } else {
             println!("event is -- {:?}", event);
             prod2.send(
-                FutureRecord::to(TOPIC)
+                FutureRecord::to(&TOPIC)
                     .partition(0) // TODO
                     .payload(&event.payload)
                     .key("key"),

@@ -3,6 +3,7 @@ extern crate rdkafka;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate config;
 
 use colored::*;
 
@@ -65,7 +66,7 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
     fn active_posts(&self, active_window_seconds: u64) -> Stream<G, HashMap<u64,Stats>> {
 
         // event ID --> post ID it refers to (root of the tree)
-        let mut root_of = HashMap::<u64,u64>::new();
+        let mut root_of = HashMap::<u64,u64>::new(); // TODO ids are not unique for posts + comments => change to pair
         // post ID --> timestamp of last event associated with it
         let mut last_timestamp = HashMap::<u64,u64>::new();
         // post ID --> stats
@@ -96,6 +97,7 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                         },
                         Event::Like(like) => {
                             let timestamp = like.creation_date.timestamp() as u64;
+                            // TODO can you like a comment?
                             let root_post_id = *root_of.get(&like.post_id).expect("TODO out of order");
 
                             match last_timestamp.get(&root_post_id) {
@@ -186,7 +188,6 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
 }
 
 fn main() {
-
     timely::execute_from_args(std::env::args(), |worker| {
 
         worker.dataflow::<u64,_,_>(|scope| {
