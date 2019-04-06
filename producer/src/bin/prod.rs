@@ -192,13 +192,11 @@ fn main() {
 
     for event in event_stream {
 
-        let delta = match prev_timestamp {
-            None => 0,
-            Some(pt) => {
+        let delta = 
+            if let Some(pt) = prev_timestamp {
                 assert!(event.timestamp >= pt);
                 (event.timestamp - pt) * 1000 / *SPEEDUP_FACTOR
-            }
-        };
+            } else { 0 };
 
         prev_timestamp = Some(event.timestamp);
         thread::sleep(time::Duration::from_millis(delta));
