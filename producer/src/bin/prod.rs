@@ -61,7 +61,7 @@ fn read_event(reader: &mut BufReader<File>) -> Option<Event> {
     let mut record = String::new();
     match reader.read_line(&mut record) {
         Err(err) => { println!("ERR {}", err); None },
-        Ok(0)    => { println!("EOF"); None },
+        Ok(0)    => { /* println!("EOF"); */ None },
         Ok(_)    => Some(Event::from_record(record))
     }
 }
@@ -172,7 +172,7 @@ fn main() {
         loop {
             thread::sleep(delay);
             while let Ok(event) = rx.try_recv() {
-                println!("event is -- {:?}", event.creation_date);
+                println!("[delayed] event at {} is -- {:?}", event.creation_date, event);
                 prod1.send(
                     FutureRecord::to(&TOPIC)
                         .partition(0) // TODO
@@ -222,7 +222,7 @@ fn main() {
             tx.send(event).unwrap();
         } else {
             prev_was_delayed = false;
-            println!("event is -- {:?}", event);
+            println!("[ontime]  event at {} is -- {:?}", event.creation_date, event);
             prod2.send(
                 FutureRecord::to(&TOPIC)
                     .partition(0) // TODO
