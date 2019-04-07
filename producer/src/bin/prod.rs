@@ -38,6 +38,7 @@ struct Event {
     timestamp: u64,
     payload: String,
     creation_date: DateTime<Utc>,
+    is_watermark: bool
 }
 
 impl Event {
@@ -50,7 +51,8 @@ impl Event {
         Event {
             payload: record.trim().to_string(),
             creation_date: date,
-            timestamp: date.timestamp() as u64
+            timestamp: date.timestamp() as u64,
+            is_watermark: false
         }
     }
 }
@@ -106,7 +108,8 @@ fn next_watermark(cur: &Event) -> Option<Event> {
     Some(Event {
         timestamp: cur.timestamp + *WATERMARK_INTERVAL_MIN*60,
         payload: format!("WATERMARK|{}", date.timestamp()),
-        creation_date: date
+        creation_date: date,
+        is_watermark: true
     })
 }
 
@@ -176,7 +179,7 @@ fn main() {
                         .payload(&event.payload)
                         .key("key"),
                         -1
-                 );
+                );
             }
         }
     });
@@ -190,8 +193,9 @@ fn main() {
     let mut rng = rand::thread_rng();
     let mut prev_timestamp = None;
 
-    for event in event_stream {
+    let mut prev_was_delayed = false;
 
+    for event in event_stream {
         let delta = 
             if let Some(pt) = prev_timestamp {
                 assert!(event.timestamp >= pt);
@@ -201,11 +205,23 @@ fn main() {
         prev_timestamp = Some(event.timestamp);
         thread::sleep(time::Duration::from_millis(delta));
 
+        // do not delay watermarks
+        if event.is_watermark {
+            prod2.send(
+                FutureRecord::to(&TOPIC)
+                    .partition(0) // TODO
+                    .payload(&event.payload)
+                    .key("key"),
+                    -1
+            );
+            continue;
+        }
 
-        // TODO do not delay if watermark
-        if rng.gen_range(0.0, 1.0) < *DELAY_PROB {
+        if !prev_was_delayed && rng.gen_range(0.0, 1.0) < *DELAY_PROB {
+            prev_was_delayed = true;
             tx.send(event).unwrap();
         } else {
+            prev_was_delayed = false;
             println!("event is -- {:?}", event);
             prod2.send(
                 FutureRecord::to(&TOPIC)
@@ -213,7 +229,7 @@ fn main() {
                     .payload(&event.payload)
                     .key("key"),
                     -1
-             );
+            );
         }
     }
 
