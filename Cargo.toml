@@ -6,8 +6,8 @@ edition = "2018"
 
 [dependencies]
 # TODO: replace below with correct path to timely-dataflow cloned repository
-timely     = {path = "/home/lorenzo/timely-dataflow" }
-kafkaesque = {path = "/home/lorenzo/timely-dataflow/kafkaesque" }
+timely     = {path = "/home/sara/timely-dataflow" }
+kafkaesque = {path = "/home/sara/timely-dataflow/kafkaesque" }
 rdkafka = "0.14.1"
 csv = "1"
 serde = "1"

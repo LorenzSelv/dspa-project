@@ -2,6 +2,9 @@
 #[macro_use]
 extern crate lazy_static;
 
+mod utils;
+use utils::prod_utils::{Event, EventStream, read_event, next_watermark};
+
 extern crate rand;
 use rand::Rng;
 
@@ -10,14 +13,11 @@ use rdkafka::config::ClientConfig;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 
 extern crate chrono;
-use chrono::{DateTime,Utc,TimeZone,Duration};
 
 extern crate config;
 
 use std::{thread, time};
 use std::sync::mpsc;
-use std::io::{BufRead, BufReader};
-use std::fs::File;
 use std::cmp::min;
 
 lazy_static! {
@@ -31,86 +31,6 @@ lazy_static! {
     static ref MAX_DELAY_SEC: u64 = SETTINGS.get::<u64>("MAX_DELAY_SEC").unwrap();
     static ref SPEEDUP_FACTOR: u64 = SETTINGS.get::<u64>("SPEEDUP_FACTOR").unwrap();
     static ref WATERMARK_INTERVAL_MIN: u64 = SETTINGS.get::<u64>("WATERMARK_INTERVAL_MIN").unwrap();
-}
-
-#[derive(Debug,Clone,Ord,PartialOrd,PartialEq,Eq)]
-struct Event {
-    timestamp: u64,
-    payload: String,
-    creation_date: DateTime<Utc>,
-    is_watermark: bool
-}
-
-impl Event {
-    fn from_record(record: String) -> Event {
-        // Creation date is always the 3rd field
-        let date_str = record.split("|").collect::<Vec<_>>()[2].trim();
-        let date = Utc.datetime_from_str(date_str, "%FT%TZ")
-               .or(Utc.datetime_from_str(date_str, "%FT%T%.3fZ")).expect("failed to parse");
-
-        Event {
-            payload: record.trim().to_string(),
-            creation_date: date,
-            timestamp: date.timestamp() as u64,
-            is_watermark: false
-        }
-    }
-}
-
-fn read_event(reader: &mut BufReader<File>) -> Option<Event> {
-    let mut record = String::new();
-    match reader.read_line(&mut record) {
-        Err(err) => { println!("ERR {}", err); None },
-        Ok(0)    => { println!("EOF"); None },
-        Ok(_)    => Some(Event::from_record(record))
-    }
-}
-
-struct EventStream {
-    posts_stream_reader: BufReader<File>,
-    likes_stream_reader: BufReader<File>,
-    comments_stream_reader: BufReader<File>,
-
-    // next event for each stream
-    post_event: Option<Event>,
-    like_event: Option<Event>,
-    comment_event: Option<Event>,
-    watermark_event: Option<Event>
-}
-
-impl EventStream {
-
-    fn new(posts_fn: String, likes_fn: String, comments_fn: String) -> EventStream {
-        let get_reader = |name| BufReader::new(File::open(&name)
-                                               .expect(&format!("file {:?} not found", name)));
-        let mut res = EventStream {
-            posts_stream_reader: get_reader(posts_fn),
-            likes_stream_reader: get_reader(likes_fn),
-            comments_stream_reader: get_reader(comments_fn),
-            post_event: None,
-            like_event: None,
-            comment_event: None,
-            watermark_event: None
-        };
-
-        // discard headers
-        let mut buf = String::new();
-        res.posts_stream_reader.read_line(&mut buf).unwrap();
-        res.likes_stream_reader.read_line(&mut buf).unwrap();
-        res.comments_stream_reader.read_line(&mut buf).unwrap();
-        res
-    }
-}
-
-fn next_watermark(cur: &Event) -> Option<Event> {
-    let duration = Duration::minutes(*WATERMARK_INTERVAL_MIN as i64);
-    let date = cur.creation_date.checked_add_signed(duration).unwrap();
-    Some(Event {
-        timestamp: cur.timestamp + *WATERMARK_INTERVAL_MIN*60,
-        payload: format!("WATERMARK|{}", date.timestamp()),
-        creation_date: date,
-        is_watermark: true
-    })
 }
 
 impl Iterator for EventStream {
@@ -143,7 +63,8 @@ impl Iterator for EventStream {
 
         // If watermark was sent or not init, advance to next watermark
         if self.watermark_event == None || self.watermark_event == res {
-            self.watermark_event = next_watermark(res.as_ref().unwrap());
+            self.watermark_event = next_watermark(res.as_ref().unwrap(),
+                                                  *WATERMARK_INTERVAL_MIN);
         }
 
         res
