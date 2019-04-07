@@ -40,7 +40,6 @@ fn main() {
         .create()
         .expect("Producer creation error");
 
-    let (tx, _rx) = mpsc::channel::<Event>();
     let event_stream = TestEventStream::new(
         dataset.clone() + "posts_event_stream.csv",
         dataset.clone() + "likes_event_stream.csv",
@@ -69,6 +68,4 @@ fn main() {
             -1
         );
     }
-
-    drop(tx);
 }

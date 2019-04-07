@@ -1,5 +1,3 @@
-KAFKA=/home/sara/kafka/
-
 $KAFKA/bin/kafka-topics.sh --list --zookeeper localhost:2181 | while read topic; do
     # $KAFKA/bin/kafka-topics.sh --zookeeper localhost:2181 --alter --topic $topic --config retention.ms=1000
     if [ "$topic" = "__consumer_offsets" ]; then continue; fi
