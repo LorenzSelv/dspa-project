@@ -50,9 +50,22 @@ impl Stats {
 
 fn dump_stats(stats: &HashMap<u64,Stats>, num_spaces: usize) {
     let spaces = " ".repeat(num_spaces);
-    println!("{}----", spaces);
+    println!("{}---- stats", spaces);
     for (post_id, stats) in stats {
         println!("{}post_id = {} -- {:?}", spaces, post_id, stats);
+    }
+    println!("{}----", spaces);
+}
+
+fn dump_ooo_events(ooo_events: &HashMap<u64,Vec<Event>>, num_spaces: usize) {
+    let spaces = " ".repeat(num_spaces);
+    println!("{}---- ooo_events", spaces);
+    for (post_id, events) in ooo_events {
+        println!("{}post_id = {} -- \n{}  {}", spaces, post_id, spaces,
+                 events.iter().map(|e| e.to_string())
+                 .collect::<Vec<_>>()
+                 .join(&format!("\n{}  ", spaces))
+        );
     }
     println!("{}----", spaces);
 }
@@ -66,7 +79,7 @@ fn dump_state(root_of: &HashMap<u64,u64>,
 ) {
     println!("{}", "Current state".bold().blue());
     println!("  root_of -- {:?}", root_of);
-    println!("  ooo_events -- {:?}", ooo_events);
+    dump_ooo_events(ooo_events, 2);
     println!("{}", "  Current stats".bold().blue());
     println!("    cur_last_timestamp -- {:?}", cur_last_timestamp);
     dump_stats(&cur_stats, 4);

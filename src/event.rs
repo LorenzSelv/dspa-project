@@ -1,4 +1,5 @@
 use std::string::ToString;
+use std::fmt;
 
 #[derive(Debug,Clone)]
 pub enum Event {
@@ -33,12 +34,12 @@ impl Event {
     }
 }
 
-impl ToString for Event {
-    fn to_string(&self) -> String {
+impl fmt::Display for Event {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Event::Post(post) => post.to_string(),
-            Event::Like(like) => like.to_string(),
-            Event::Comment(comm) => comm.to_string(),
+            Event::Post(post) => write!(f, "{}", post.to_string()),
+            Event::Like(like) => write!(f, "{}", like.to_string()),
+            Event::Comment(comm) => write!(f, "{}", comm.to_string())
         }
     }
 }

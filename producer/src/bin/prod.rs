@@ -3,7 +3,7 @@
 extern crate lazy_static;
 
 mod utils;
-use utils::prod_utils::{Event, EventStream, read_event, next_watermark};
+use utils::prod_utils::{Event, EventStream};
 
 extern crate rand;
 use rand::Rng;
@@ -18,7 +18,6 @@ extern crate config;
 
 use std::{thread, time};
 use std::sync::mpsc;
-use std::cmp::min;
 
 lazy_static! {
     static ref SETTINGS: config::Config = {
@@ -30,45 +29,6 @@ lazy_static! {
     static ref DELAY_PROB: f64 = SETTINGS.get::<f64>("DELAY_PROB").unwrap();
     static ref MAX_DELAY_SEC: u64 = SETTINGS.get::<u64>("MAX_DELAY_SEC").unwrap();
     static ref SPEEDUP_FACTOR: u64 = SETTINGS.get::<u64>("SPEEDUP_FACTOR").unwrap();
-    static ref WATERMARK_INTERVAL_MIN: u64 = SETTINGS.get::<u64>("WATERMARK_INTERVAL_MIN").unwrap();
-}
-
-impl Iterator for EventStream {
-    type Item = Event;
-
-    fn next(&mut self) -> Option<Event> {
-        // If an event "slot" is None, try to fill it by reading a new record
-        if self.post_event == None { self.post_event = read_event(&mut self.posts_stream_reader); }
-        if self.like_event == None { self.like_event = read_event(&mut self.likes_stream_reader); }
-        if self.comment_event == None { self.comment_event = read_event(&mut self.comments_stream_reader); }
-
-        let mut res: Option<Event> = None;
-
-        let mut maybe_update = |other: &Event| {
-            if let Some(r) = res.clone() { res = Some(min(r, other.clone())); }
-            else { res = Some(other.clone()); }
-        };
-
-        // Find the event that happened at the earliest time
-        if let Some(p) = &self.post_event      { maybe_update(p); }
-        if let Some(l) = &self.like_event      { maybe_update(l); }
-        if let Some(c) = &self.comment_event   { maybe_update(c); }
-        if let Some(w) = &self.watermark_event { maybe_update(w); }
-
-        // Consume the event
-        if self.post_event == res    { self.post_event = None; }
-        if self.like_event == res    { self.like_event = None; }
-        if self.comment_event == res { self.comment_event = None; }
-
-
-        // If watermark was sent or not init, advance to next watermark
-        if self.watermark_event == None || self.watermark_event == res {
-            self.watermark_event = next_watermark(res.as_ref().unwrap(),
-                                                  *WATERMARK_INTERVAL_MIN);
-        }
-
-        res
-    }
 }
 
 fn main() {
@@ -93,7 +53,7 @@ fn main() {
         loop {
             thread::sleep(delay);
             while let Ok(event) = rx.try_recv() {
-                println!("event is -- {:?}", event.creation_date);
+                println!("[delayed] event at {} is -- {:?}", event.creation_date, event);
                 prod1.send(
                     FutureRecord::to(&TOPIC)
                         .partition(0) // TODO
@@ -143,7 +103,7 @@ fn main() {
             tx.send(event).unwrap();
         } else {
             prev_was_delayed = false;
-            println!("event is -- {:?}", event);
+            println!("[ontime]  event at {} is -- {:?}", event.creation_date, event);
             prod2.send(
                 FutureRecord::to(&TOPIC)
                     .partition(0) // TODO
