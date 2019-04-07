@@ -201,6 +201,8 @@ fn main() {
         prev_timestamp = Some(event.timestamp);
         thread::sleep(time::Duration::from_millis(delta));
 
+
+        // TODO do not delay if watermark
         if rng.gen_range(0.0, 1.0) < *DELAY_PROB {
             tx.send(event).unwrap();
         } else {

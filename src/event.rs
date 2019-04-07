@@ -16,6 +16,14 @@ impl Event {
         }
     }
 
+    pub fn id(&self) -> Option<u64> {
+        match self {
+            Event::Post(post) => Some(post.post_id),
+            Event::Like(_like) => None, // like has no id
+            Event::Comment(comm) => Some(comm.comment_id)
+        }
+    }
+
     pub fn person_id(&self) -> u64 {
         match self {
             Event::Post(post) => post.person_id,

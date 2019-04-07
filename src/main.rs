@@ -58,7 +58,7 @@ fn dump_stats(stats: &HashMap<u64,Stats>, num_spaces: usize) {
 }
 
 fn dump_state(root_of: &HashMap<u64,u64>,
-              ooo_events: &HashMap<u64,Event>,
+              ooo_events: &HashMap<u64,Vec<Event>>,
               cur_last_timestamp: &HashMap<u64,u64>,
               cur_stats: &HashMap<u64,Stats>,
               next_last_timestamp: &HashMap<u64,u64>,
@@ -126,6 +126,51 @@ fn update_stats(event: &Event,
          .new_person(event.person_id());
 }
 
+/// process events that have `id` as their target,
+/// recursively process the newly inserted ids
+fn process_ooo_events(ooo_events: &mut HashMap<u64,Vec<Event>>,
+                      id: u64,
+                      root_of: &mut HashMap<u64,u64>,
+                      next_notification_time: u64,
+                      cur_last_timestamp: &mut HashMap<u64,u64>,
+                      cur_stats: &mut HashMap<u64,Stats>,
+                      next_last_timestamp: &mut HashMap<u64,u64>,
+                      next_stats: &mut HashMap<u64,Stats>
+) {
+    if let Some(events) = ooo_events.remove(&id) {
+        println!("-- {} for id = {}", "process_ooo_events".bold().yellow(), id);
+
+        let mut new_ids = Vec::new();
+        for event in events {
+
+            let (opt_target_id, opt_root_post_id) = update_post_tree(&event, root_of);
+            assert!(opt_target_id.unwrap() == id, "wtf");
+            let root_post_id = opt_root_post_id.expect("[process_ooo_events] root_post_id is None");
+
+            update_stats(&event, root_post_id, next_last_timestamp, next_stats);
+            if event.timestamp() <= next_notification_time {
+                update_stats(&event, root_post_id, cur_last_timestamp, cur_stats);
+            }
+
+            if let Some(new_id) = event.id() {
+                new_ids.push(new_id)
+            }
+        }
+
+        // adding events might unlock other ooo events
+        for new_id in new_ids.drain(..) {
+            process_ooo_events(ooo_events,
+                               new_id,
+                               root_of,
+                               next_notification_time,
+                               cur_last_timestamp,
+                               cur_stats,
+                               next_last_timestamp,
+                               next_stats);
+        }
+    }
+}
+
 trait ActivePosts<G: Scope> {
     fn active_posts(&self, active_window_seconds: u64) -> Stream<G, HashMap<u64,Stats>>;
 }
@@ -136,11 +181,12 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
 
         // cur_* variables refer to the current window
         // next_* variables refer to the next window
+        // TODO wrap all variables in a `ActivePostsState` struct
 
         // event ID --> post ID it refers to (root of the tree)
         let mut root_of  = HashMap::<u64,u64>::new(); // TODO ids are not unique for posts + comments => change to pair
         // out-of-order events: id of missing event --> event that depends on it
-        let mut ooo_events  = HashMap::<u64,Event>::new();
+        let mut ooo_events  = HashMap::<u64,Vec<Event>>::new();
         // post ID --> timestamp of last event associated with it
         let mut cur_last_timestamp  = HashMap::<u64,u64>::new();
         let mut next_last_timestamp = HashMap::<u64,u64>::new();
@@ -164,7 +210,7 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                 for event in buf.drain(..) {
                     println!("{} {}", "+".bold().yellow(), event.to_string().bold().yellow());
 
-                    let (target_id, opt_root_post_id) = update_post_tree(&event, &mut root_of);
+                    let (opt_target_id, opt_root_post_id) = update_post_tree(&event, &mut root_of);
 
                     match opt_root_post_id {
                         Some(root_post_id) => {
@@ -174,9 +220,21 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                                 update_stats(&event, root_post_id, &mut cur_last_timestamp, &mut cur_stats);
                             }
                             min_t = min(min_t, timestamp);
+
+                            // check whether we can pop some stuff out of the ooo map
+                            if let Some(eid) = event.id() {
+                                process_ooo_events(&mut ooo_events,
+                                                   eid,
+                                                   &mut root_of,
+                                                   next_notification_time,
+                                                   &mut cur_last_timestamp,
+                                                   &mut cur_stats,
+                                                   &mut next_last_timestamp,
+                                                   &mut next_stats);
+                            }
                         },
                         // out-of-order event
-                        None => { ooo_events.insert(target_id.unwrap(), event); }
+                        None => { ooo_events.entry(opt_target_id.unwrap()).or_insert(Vec::new()).push(event); }
                     };
 
                     dump_state(&root_of, &ooo_events, &cur_last_timestamp, &cur_stats, &next_last_timestamp, &next_stats);
