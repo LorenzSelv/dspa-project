@@ -6,8 +6,9 @@ use timely::dataflow::Stream;
 use timely::dataflow::scopes::Child;
 use timely::communication::allocator::Generic;
 
-extern crate chrono;
 use chrono::{Utc,TimeZone};
+
+use super::source::kafka_source;
 
 lazy_static! {
     static ref SETTINGS: config::Config = {
@@ -44,7 +45,7 @@ pub fn string_stream<'a> (
 
     println!("[kafka-consumer] subscribed to topic \"{}\"", topic);
 
-    kafkaesque::source(scope, "KafkaStringSourceStream", consumer, |bytes, capability, output| {
+    kafka_source(scope, "KafkaStringSourceStream", consumer, |bytes, capability, output| {
 
         // If the bytes are utf8, convert to string and send.
         if let Ok(text) = std::str::from_utf8(bytes) {

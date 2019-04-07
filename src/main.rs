@@ -1,4 +1,3 @@
-extern crate kafkaesque;
 extern crate rdkafka;
 extern crate serde;
 #[macro_use]
