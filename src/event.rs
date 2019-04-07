@@ -7,6 +7,24 @@ pub enum Event {
     Comment(CommentEvent)
 }
 
+impl Event {
+    pub fn timestamp(&self) -> u64 {
+        match self {
+            Event::Post(post) => post.creation_date.timestamp() as u64,
+            Event::Like(like) => like.creation_date.timestamp() as u64,
+            Event::Comment(comm) => comm.creation_date.timestamp() as u64
+        }
+    }
+
+    pub fn person_id(&self) -> u64 {
+        match self {
+            Event::Post(post) => post.person_id,
+            Event::Like(like) => like.person_id,
+            Event::Comment(comm) => comm.person_id
+        }
+    }
+}
+
 impl ToString for Event {
     fn to_string(&self) -> String {
         match self {

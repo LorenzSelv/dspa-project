@@ -21,7 +21,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 
 mod event;
-use event::{Event, PostEvent, LikeEvent, CommentEvent};
+use event::Event;
 
 mod kafka;
 
@@ -48,8 +48,8 @@ impl Stats {
     fn new_person(&mut self, id: u64)  { self.unique_people.insert(id); }
 }
 
-fn dump_stats(stats: &HashMap<u64,Stats>, tabs: usize) {
-    let spaces = " ".repeat(4*tabs);
+fn dump_stats(stats: &HashMap<u64,Stats>, num_spaces: usize) {
+    let spaces = " ".repeat(num_spaces);
     println!("{}----", spaces);
     for (post_id, stats) in stats {
         println!("{}post_id = {} -- {:?}", spaces, post_id, stats);
@@ -57,69 +57,73 @@ fn dump_stats(stats: &HashMap<u64,Stats>, tabs: usize) {
     println!("{}----", spaces);
 }
 
-fn handle_post(
-    post: &PostEvent,
-    root_of: &mut HashMap<u64,u64>,
-    last_timestamp: &mut HashMap<u64,u64>,
-    stats: &mut HashMap<u64,Stats>
-) -> u64 {
-    let timestamp = post.creation_date.timestamp() as u64;
-    root_of.insert(post.post_id, post.post_id);
-    last_timestamp.insert(post.post_id, timestamp);
-
-    stats.insert(post.post_id, Stats::new());
-    stats.get_mut(&post.post_id).unwrap().new_person(post.person_id);
-
-    timestamp
+fn dump_state(root_of: &HashMap<u64,u64>,
+              ooo_events: &HashMap<u64,Event>,
+              cur_last_timestamp: &HashMap<u64,u64>,
+              cur_stats: &HashMap<u64,Stats>,
+              next_last_timestamp: &HashMap<u64,u64>,
+              next_stats: &HashMap<u64,Stats>
+) {
+    println!("{}", "Current state".bold().blue());
+    println!("  root_of -- {:?}", root_of);
+    println!("  ooo_events -- {:?}", ooo_events);
+    println!("{}", "  Current stats".bold().blue());
+    println!("    cur_last_timestamp -- {:?}", cur_last_timestamp);
+    dump_stats(&cur_stats, 4);
+    println!("{}", "  Next stats".bold().blue());
+    println!("    next_last_timestamp -- {:?}", next_last_timestamp);
+    dump_stats(&next_stats, 4);
 }
 
-fn handle_like(
-    like: &LikeEvent,
-    root_of: &mut HashMap<u64,u64>,
-    last_timestamp: &mut HashMap<u64,u64>,
-    stats: &mut HashMap<u64,Stats>
-) -> u64 {
-    let timestamp = like.creation_date.timestamp() as u64;
-    // TODO can you like a comment?
-    let root_post_id = *root_of.get(&like.post_id).expect("TODO out of order");
+fn update_post_tree(event: &Event, root_of: &mut HashMap<u64,u64>) -> (Option<u64>, Option<u64>) {
+    match event {
+        Event::Post(post) => {
+            root_of.insert(post.post_id, post.post_id);
+            (None, Some(post.post_id))
+        },
+        Event::Like(like) => { // likes are not stored in the tree
+            (Some(like.post_id), root_of.get(&like.post_id).cloned())
+        },
+        Event::Comment(comment) => {
+            let reply_to_id = comment.reply_to_post_id
+                          .or(comment.reply_to_comment_id).unwrap();
 
+            if let Some(&root_post_id) = root_of.get(&reply_to_id) {
+                root_of.insert(comment.comment_id, root_post_id);
+                (Some(reply_to_id), Some(root_post_id))
+            } else {
+                (Some(reply_to_id), None)
+            }
+        }
+    }
+}
+
+fn update_stats(event: &Event,
+                root_post_id: u64,
+                last_timestamp: &mut HashMap<u64,u64>,
+                stats: &mut HashMap<u64,Stats>
+) {
+    let timestamp = event.timestamp();
+
+    // update last_timestamp
     match last_timestamp.get(&root_post_id) {
         Some(&prev) => last_timestamp.insert(root_post_id, max(prev, timestamp)),
         None => last_timestamp.insert(root_post_id, timestamp)
     };
 
-    stats.get_mut(&root_post_id).unwrap().new_person(like.person_id);
-
-    timestamp
-}
-
-fn handle_comment(
-    comment: &CommentEvent,
-    root_of: &mut HashMap<u64,u64>,
-    last_timestamp: &mut HashMap<u64,u64>,
-    stats: &mut HashMap<u64,Stats>
-) -> u64 {
-    let timestamp = comment.creation_date.timestamp() as u64;
-    let reply_to_id = comment.reply_to_post_id
-                  .or(comment.reply_to_comment_id).unwrap();
-
-    let root_post_id = *root_of.get(&reply_to_id).expect("TODO out of order");
-    root_of.insert(comment.comment_id, root_post_id);
-
-    match last_timestamp.get(&root_post_id) {
-        Some(&prev) => last_timestamp.insert(root_post_id, max(prev, timestamp)),
-        None => last_timestamp.insert(root_post_id, timestamp)
-    };
-
-    if comment.reply_to_post_id != None {
-        stats.get_mut(&root_post_id).unwrap().new_comment();
-    } else {
-        stats.get_mut(&root_post_id).unwrap().new_reply();
+    // update number of comments / replies
+    if let Event::Comment(comment) = &event {
+        if comment.reply_to_post_id != None {
+            stats.get_mut(&root_post_id).unwrap().new_comment();
+        } else {
+            stats.get_mut(&root_post_id).unwrap().new_reply();
+        }
     }
 
-    stats.get_mut(&root_post_id).unwrap().new_person(comment.person_id);
-
-    timestamp
+    // update unique people set
+    stats.entry(root_post_id)
+         .or_insert(Stats::new())
+         .new_person(event.person_id());
 }
 
 trait ActivePosts<G: Scope> {
@@ -134,8 +138,9 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
         // next_* variables refer to the next window
 
         // event ID --> post ID it refers to (root of the tree)
-        let mut cur_root_of  = HashMap::<u64,u64>::new(); // TODO ids are not unique for posts + comments => change to pair
-        let mut next_root_of = HashMap::<u64,u64>::new(); // TODO ids are not unique for posts + comments => change to pair
+        let mut root_of  = HashMap::<u64,u64>::new(); // TODO ids are not unique for posts + comments => change to pair
+        // out-of-order events: id of missing event --> event that depends on it
+        let mut ooo_events  = HashMap::<u64,Event>::new();
         // post ID --> timestamp of last event associated with it
         let mut cur_last_timestamp  = HashMap::<u64,u64>::new();
         let mut next_last_timestamp = HashMap::<u64,u64>::new();
@@ -146,6 +151,7 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
         let mut first_notification = true;
         let mut next_notification_time = std::u64::MAX;
 
+
         self.unary_notify(Pipeline, "ActivePosts", None, move |input, output, notificator| {
 
             input.for_each(|time, data| {
@@ -154,44 +160,30 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                 data.swap(&mut buf);
 
                 let mut min_t = std::u64::MAX;
+
                 for event in buf.drain(..) {
                     println!("{} {}", "+".bold().yellow(), event.to_string().bold().yellow());
-                    let cur_t = match event {
-                        Event::Post(post) => {
-                            let time = handle_post(&post, &mut next_root_of, &mut next_last_timestamp, &mut next_stats);
-                            if time <= next_notification_time {
-                                handle_post(&post, &mut cur_root_of, &mut cur_last_timestamp, &mut cur_stats);
+
+                    let (target_id, opt_root_post_id) = update_post_tree(&event, &mut root_of);
+
+                    match opt_root_post_id {
+                        Some(root_post_id) => {
+                            let timestamp = event.timestamp();
+                            update_stats(&event, root_post_id, &mut next_last_timestamp, &mut next_stats);
+                            if timestamp <= next_notification_time {
+                                update_stats(&event, root_post_id, &mut cur_last_timestamp, &mut cur_stats);
                             }
-                            time
+                            min_t = min(min_t, timestamp);
                         },
-                        Event::Like(like) => {
-                            let time = handle_like(&like, &mut next_root_of, &mut next_last_timestamp, &mut next_stats);
-                            if time <= next_notification_time {
-                                handle_like(&like, &mut cur_root_of, &mut cur_last_timestamp, &mut cur_stats);
-                            }
-                            time
-                        },
-                        Event::Comment(comment) => {
-                            let time = handle_comment(&comment, &mut next_root_of, &mut next_last_timestamp, &mut next_stats);
-                            if time <= next_notification_time {
-                                handle_comment(&comment, &mut cur_root_of, &mut cur_last_timestamp, &mut cur_stats);
-                            }
-                            time
-                        }
+                        // out-of-order event
+                        None => { ooo_events.insert(target_id.unwrap(), event); }
                     };
 
-                    min_t = min(min_t, cur_t);
-                    println!("{}", "Current state".bold().blue());
-                    println!("    cur_root_of -- {:?}", cur_root_of);
-                    println!("    cur_last_timestamp -- {:?}", cur_last_timestamp);
-                    dump_stats(&cur_stats, 1);
-                    println!("{}", "Next state".bold().blue());
-                    println!("    next_root_of -- {:?}", next_root_of);
-                    println!("    next_last_timestamp -- {:?}", next_last_timestamp);
-                    dump_stats(&next_stats, 1);
+                    dump_state(&root_of, &ooo_events, &cur_last_timestamp, &cur_stats, &next_last_timestamp, &next_stats);
                 }
 
-                if first_notification {
+                // first event might be out of order ..
+                if min_t != std::u64::MAX && first_notification {
                     next_notification_time = min_t + 30*60;
                     notificator.notify_at(time.delayed(&next_notification_time));
                     first_notification = false;
@@ -208,14 +200,7 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                 *borrow = Some(time.clone());
                 println!("~~~~~~~~~~~~~~~~~~~~~~~~");
                 println!("{} at timestamp {}", "notified".bold().green(), cur_t);
-                println!("  {}", "Current state".bold().blue());
-                println!("    cur_root_of -- {:?}", cur_root_of);
-                println!("    cur_last_timestamp -- {:?}", cur_last_timestamp);
-                dump_stats(&cur_stats, 1);
-                println!("  {}", "Next state".bold().blue());
-                println!("    next_root_of -- {:?}", next_root_of);
-                println!("    next_last_timestamp -- {:?}", next_last_timestamp);
-                dump_stats(&next_stats, 1);
+                dump_state(&root_of, &ooo_events, &cur_last_timestamp, &cur_stats, &next_last_timestamp, &next_stats);
 
                 let active_posts = cur_last_timestamp.iter().filter_map(|(&post_id, &last_t)| {
                     if last_t >= cur_t - active_window_seconds { Some(post_id) }
@@ -229,7 +214,6 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                 let mut session = output.session(&time);
                 session.give(active_posts_stats);
 
-                cur_root_of = next_root_of.clone();
                 cur_last_timestamp = next_last_timestamp.clone();
                 cur_stats = next_stats.clone();
 
@@ -261,7 +245,7 @@ fn main() {
                 .active_posts(ACTIVE_WINDOW_SECONDS)
                 .inspect(|stats: &HashMap<u64,Stats>| {
                     println!("{}", "inspect".bold().red());
-                    dump_stats(stats, 1);
+                    dump_stats(stats, 4);
                 });
         });
 
