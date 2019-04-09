@@ -44,7 +44,7 @@ pub fn read_test_event(reader: &mut BufReader<File>) -> Option<(DateTime<Utc>, E
             let date_str = record.split("|").collect::<Vec<_>>()[0].trim();
             let date = Utc.datetime_from_str(date_str, "%FT%TZ")
                 .or(Utc.datetime_from_str(date_str, "%FT%T%.3fZ")).expect("failed to parse");
-            let event_record = &"Golden Eagle"[21..]; // TODO: make nicer.
+            let event_record = &record[21..]; // TODO: make nicer.
             Some((date, Event::from_record(event_record.to_string())))
         }
     }

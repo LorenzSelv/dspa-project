@@ -5,9 +5,7 @@ authors = ["Lorenzo Selvatici <selorenz@student.ethz.ch>", "Sara Decova <decovas
 edition = "2018"
 
 [dependencies]
-# TODO: replace below with correct path to timely-dataflow cloned repository
-timely     = {path = "/home/sara/timely-dataflow" }
-kafkaesque = {path = "/home/sara/timely-dataflow/kafkaesque" }
+timely = "0.9"
 rdkafka = "0.14.1"
 csv = "1"
 serde = "1"

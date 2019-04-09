@@ -1,13 +1,11 @@
+use timely::dataflow::{Scope, Stream};
+
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{Consumer, BaseConsumer, EmptyConsumerContext};
 
-use timely::worker::Worker;
-use timely::dataflow::Stream;
-use timely::dataflow::scopes::Child;
-use timely::communication::allocator::Generic;
-
-extern crate chrono;
 use chrono::{Utc,TimeZone};
+
+use super::source::kafka_source;
 
 lazy_static! {
     static ref SETTINGS: config::Config = {
@@ -18,15 +16,15 @@ lazy_static! {
     static ref MAX_DELAY_SEC: u64 = SETTINGS.get::<u64>("MAX_DELAY_SEC").unwrap();
 }
 
-pub fn string_stream<'a> (
-    scope: &mut timely::dataflow::scopes::Child<'a, Worker<Generic>, u64>,
+pub fn string_stream<'a, G> (
+    scope: &mut G,
     topic: &'static str
-) -> Stream<Child<'a, Worker<Generic>, u64>, String>
+) -> Stream<G, String>
+where
+    G: Scope<Timestamp=u64>
 {
     let brokers = "localhost:9092";
 
-    // Create Kafka consumer configuration.
-    // Feel free to change parameters here.
     let mut consumer_config = ClientConfig::new();
     consumer_config
         .set("produce.offset.report", "true")
@@ -44,7 +42,7 @@ pub fn string_stream<'a> (
 
     println!("[kafka-consumer] subscribed to topic \"{}\"", topic);
 
-    kafkaesque::source(scope, "KafkaStringSourceStream", consumer, |bytes, capability, output| {
+    kafka_source(scope, "KafkaStringSourceStream", consumer, |bytes, capability, output| {
 
         // If the bytes are utf8, convert to string and send.
         if let Ok(text) = std::str::from_utf8(bytes) {

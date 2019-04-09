@@ -1,0 +1,39 @@
+# 00:05:00 - 00:35:00
+notified at timestamp 1554165300
+  Active post stats
+    ---- stats
+    post_id = 100 -- Stats { num_comments: 3, num_replies: 2, unique_people: {2, 1, 0} }
+    post_id = 101 -- Stats { num_comments: 0, num_replies: 0, unique_people: {1} }
+
+# 00:35:00 - 01:05:00
+notified at timestamp 1554167100
+  Active post stats
+    ---- stats
+    post_id = 101 -- Stats { num_comments: 1, num_replies: 0, unique_people: {1} }
+    post_id = 100 -- Stats { num_comments: 3, num_replies: 2, unique_people: {2, 1, 0} }
+
+# 01:05:00 - 01:35:00
+notified at timestamp 1554168900
+  Active post stats
+    ---- stats
+    post_id = 101 -- Stats { num_comments: 1, num_replies: 0, unique_people: {1} }
+    post_id = 100 -- Stats { num_comments: 3, num_replies: 2, unique_people: {2, 1, 0} }
+
+# 01:35:00 - 02:05:00
+notified at timestamp 1554170700
+  Active post stats
+    ---- stats
+    post_id = 101 -- Stats { num_comments: 2, num_replies: 0, unique_people: {3, 1, 0} }
+    post_id = 100 -- Stats { num_comments: 3, num_replies: 3, unique_people: {0, 1, 2} }
+
+
+# 02:05:00 - 02:35:00
+notified at timestamp 1554168900
+  Active post stats
+    ---- stats
+    post_id = 100 -- Stats { num_comments: 3, num_replies: 4, unique_people: {0, 1, 2} }
+    post_id = 101 -- Stats { num_comments: 2, num_replies: 0, unique_people: {3, 1, 0} }
+
+
+# repeated from now on....
+

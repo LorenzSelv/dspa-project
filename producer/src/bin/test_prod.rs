@@ -3,7 +3,6 @@
 extern crate lazy_static;
 
 mod utils;
-use utils::prod_utils::Event;
 use utils::test_prod_utils::TestEventStream;
 
 extern crate rdkafka;
@@ -15,7 +14,6 @@ extern crate chrono;
 extern crate config;
 
 use std::{thread, time};
-use std::sync::mpsc;
 
 lazy_static! {
     static ref SETTINGS: config::Config = {
