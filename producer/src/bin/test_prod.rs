@@ -65,5 +65,6 @@ fn main() {
                 .key("key"),
             -1
         );
+        println!("event at {} is -- {:?}", event.creation_date, event);
     }
 }
