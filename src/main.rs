@@ -20,7 +20,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 
 mod event;
-use event::Event;
+use event::{Event, ID};
 
 mod kafka;
 
@@ -56,7 +56,7 @@ fn dump_stats(stats: &HashMap<u64,Stats>, num_spaces: usize) {
     println!("{}----", spaces);
 }
 
-fn dump_ooo_events(ooo_events: &HashMap<u64,Vec<Event>>, num_spaces: usize) {
+fn dump_ooo_events(ooo_events: &HashMap<ID,Vec<Event>>, num_spaces: usize) {
     let spaces = " ".repeat(num_spaces);
     println!("{}---- ooo_events", spaces);
     for (post_id, events) in ooo_events {
@@ -69,15 +69,14 @@ fn dump_ooo_events(ooo_events: &HashMap<u64,Vec<Event>>, num_spaces: usize) {
     println!("{}----", spaces);
 }
 
-
 struct ActivePostsState {
     // cur_* variables refer to the current window
     // next_* variables refer to the next window
 
     // event ID --> post ID it refers to (root of the tree)
-    root_of: HashMap<u64,u64>,
+    root_of: HashMap<ID,ID>,
     // out-of-order events: id of missing event --> event that depends on it
-    ooo_events: HashMap<u64,Vec<Event>>,
+    ooo_events: HashMap<ID, Vec<Event>>,
     // post ID --> timestamp of last event associated with it
     cur_last_timestamp: HashMap<u64,u64>,
     next_last_timestamp: HashMap<u64,u64>,
@@ -92,8 +91,8 @@ impl ActivePostsState {
 
     fn new() -> ActivePostsState {
         ActivePostsState {
-            root_of: HashMap::<u64,u64>::new(),
-            ooo_events: HashMap::<u64,Vec<Event>>::new(),
+            root_of: HashMap::<ID,ID>::new(),
+            ooo_events: HashMap::<ID,Vec<Event>>::new(),
             cur_last_timestamp:  HashMap::<u64,u64>::new(),
             next_last_timestamp: HashMap::<u64,u64>::new(),
             cur_stats:  HashMap::<u64,Stats>::new(),
@@ -114,7 +113,7 @@ impl ActivePostsState {
         dump_stats(&self.next_stats, 4);
     }
 
-    fn update_post_tree(&mut self, event: &Event) -> (Option<u64>, Option<u64>) {
+    fn update_post_tree(&mut self, event: &Event) -> (Option<ID>, Option<ID>) {
         match event {
             Event::Post(post) => {
                 self.root_of.insert(post.post_id, post.post_id);
@@ -177,7 +176,7 @@ impl ActivePostsState {
 
     /// process events that have `id` as their target,
     /// recursively process the newly inserted ids
-    fn process_ooo_events(&mut self, id: u64) {
+    fn process_ooo_events(&mut self, id: ID) {
         if let Some(events) = self.ooo_events.remove(&id) {
             println!("-- {} for id = {}", "process_ooo_events".bold().yellow(), id);
 
@@ -188,7 +187,7 @@ impl ActivePostsState {
                 assert!(opt_target_id.unwrap() == id, "wtf");
                 let root_post_id = opt_root_post_id.expect("[process_ooo_events] root_post_id is None");
 
-                self.update_stats(&event, root_post_id);
+                self.update_stats(&event, root_post_id.u64());
 
                 if let Some(new_id) = event.id() { new_ids.push(new_id) }
             }
@@ -218,7 +217,7 @@ impl ActivePostsState {
         active_posts_stats
     }
 
-    fn push_ooo_event(&mut self, event: Event, target_id: u64) {
+    fn push_ooo_event(&mut self, event: Event, target_id: ID) {
         self.ooo_events.entry(target_id).or_insert(Vec::new()).push(event);
     }
 }
@@ -250,8 +249,12 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
 
                     match opt_root_post_id {
                         Some(root_post_id) => {
-                            let timestamp = state.update_stats(&event, root_post_id);
-                            min_t = min(min_t, timestamp);
+                            if let ID::Post(pid) = root_post_id {
+                                let timestamp = state.update_stats(&event, pid);
+                                min_t = min(min_t, timestamp);
+                            } else {
+                                panic!("expect ID::Post, got ID::Comment");
+                            }
 
                             // check whether we can pop some stuff out of the ooo map
                             if let Some(eid) = event.id() { state.process_ooo_events(eid); }
