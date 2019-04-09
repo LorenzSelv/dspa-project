@@ -51,6 +51,7 @@ pub fn read_event(reader: &mut BufReader<File>) -> Option<Event> {
     }
 }
 
+#[allow(dead_code)]
 pub struct EventStream {
     pub posts_stream_reader: BufReader<File>,
     pub likes_stream_reader: BufReader<File>,
@@ -64,7 +65,7 @@ pub struct EventStream {
 }
 
 impl EventStream {
-
+    #[allow(dead_code)]
     pub fn new(posts_fn: String, likes_fn: String, comments_fn: String) -> EventStream {
         let get_reader = |name| BufReader::new(File::open(&name)
                                                .expect(&format!("file {:?} not found", name)));
@@ -105,7 +106,8 @@ impl Iterator for EventStream {
         // If an event "slot" is None, try to fill it by reading a new record
         if self.post_event == None { self.post_event = read_event(&mut self.posts_stream_reader); }
         if self.like_event == None { self.like_event = read_event(&mut self.likes_stream_reader); }
-        if self.comment_event == None { self.comment_event = read_event(&mut self.comments_stream_reader); }
+        if self.comment_event == None {
+            self.comment_event = read_event(&mut self.comments_stream_reader); }
 
         let mut res: Option<Event> = None;
 

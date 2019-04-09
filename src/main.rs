@@ -13,6 +13,9 @@ use timely::dataflow::{Stream, Scope};
 use timely::dataflow::operators::{Operator, Inspect, Map};
 use timely::dataflow::channels::pact::Pipeline;
 
+extern crate chrono;
+use chrono::{Utc, TimeZone};
+
 use std::cmp::{min, max};
 use std::collections::{HashMap, HashSet};
 
@@ -282,8 +285,9 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
                 *borrow = Some(time.clone());
 
                 let timestamp = *time.time();
+                let date = Utc.timestamp(timestamp as i64, 0);
                 println!("~~~~~~~~~~~~~~~~~~~~~~~~");
-                println!("{} at timestamp {}", "notified".bold().green(), timestamp);
+                println!("{} at timestamp {}", "notified".bold().green(), date);
                 state.dump();
 
                 let stats = state.active_posts_stats(timestamp, active_window_seconds);
