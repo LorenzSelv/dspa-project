@@ -63,7 +63,7 @@ fn dump_ooo_events(ooo_events: &HashMap<ID,Vec<Event>>, num_spaces: usize) {
     let spaces = " ".repeat(num_spaces);
     println!("{}---- ooo_events", spaces);
     for (post_id, events) in ooo_events {
-        println!("{}post_id = {} -- \n{}  {}", spaces, post_id, spaces,
+        println!("{}{:?} -- \n{}  {}", spaces, post_id, spaces,
                  events.iter().map(|e| e.to_string())
                  .collect::<Vec<_>>()
                  .join(&format!("\n{}  ", spaces))
@@ -181,7 +181,7 @@ impl ActivePostsState {
     /// recursively process the newly inserted ids
     fn process_ooo_events(&mut self, id: ID) {
         if let Some(events) = self.ooo_events.remove(&id) {
-            println!("-- {} for id = {}", "process_ooo_events".bold().yellow(), id);
+            println!("-- {} for id = {:?}", "process_ooo_events".bold().yellow(), id);
 
             let mut new_ids = Vec::new();
             for event in events {

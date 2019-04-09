@@ -25,8 +25,8 @@ impl ID {
 impl fmt::Display for ID {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ID::Post(id) => write!(f, "{}", id),
-            ID::Comment(id) => write!(f, "{}", id),
+            ID::Post(id) => write!(f, "Post({})", id),
+            ID::Comment(id) => write!(f, "Comment({})", id),
         }
     }
 }
