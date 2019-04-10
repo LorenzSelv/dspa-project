@@ -2,6 +2,7 @@ use timely::dataflow::{Scope, Stream};
 
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{Consumer, BaseConsumer, EmptyConsumerContext};
+use rdkafka::TopicPartitionList;
 
 use chrono::{Utc,TimeZone};
 
@@ -18,7 +19,8 @@ lazy_static! {
 
 pub fn string_stream<'a, G> (
     scope: &mut G,
-    topic: &'static str
+    topic: &'static str,
+    partition: i32
 ) -> Stream<G, String>
 where
     G: Scope<Timestamp=u64>
@@ -40,7 +42,13 @@ where
     let consumer : BaseConsumer<EmptyConsumerContext> = consumer_config.create().expect("Couldn't create consumer");
     consumer.subscribe(&[&topic.to_string()]).expect("Failed to subscribe to topic");
 
-    println!("[kafka-consumer] subscribed to topic \"{}\"", topic);
+    let mut partition_list = TopicPartitionList::new();
+    partition_list.add_partition(topic, partition);
+    consumer.assign(&partition_list).expect("error in assigning partition list");
+
+    println!("[kafka-consumer] subscribed to topic \"{}\" with assignment {:?}",
+             topic,
+             consumer.assignment());
 
     kafka_source(scope, "KafkaStringSourceStream", consumer, |bytes, capability, output| {
 

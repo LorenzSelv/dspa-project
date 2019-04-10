@@ -1,5 +1,6 @@
 use std::string::ToString;
 use std::fmt;
+use abomonation;
 
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ID {
@@ -38,6 +39,8 @@ pub enum Event {
     Comment(CommentEvent)
 }
 
+impl abomonation::Abomonation for Event {}
+
 impl Event {
     pub fn timestamp(&self) -> u64 {
         match self {
@@ -60,6 +63,17 @@ impl Event {
             Event::Post(post) => post.person_id,
             Event::Like(like) => like.person_id,
             Event::Comment(comm) => comm.person_id
+        }
+    }
+
+    pub fn target_post_id(&self) -> u64 {
+        match self {
+            Event::Post(post) => post.post_id_u64,
+            Event::Like(like) => like.post_id_u64,
+            Event::Comment(comm) => {
+                comm.reply_to_post_id_u64
+                     .or(comm.reply_to_comment_id_u64).unwrap()
+            }
         }
     }
 }

@@ -23,6 +23,7 @@ lazy_static! {
     };
     static ref TOPIC: String = SETTINGS.get::<String>("TOPIC").unwrap();
     static ref SPEEDUP_FACTOR: u64 = SETTINGS.get::<u64>("SPEEDUP_FACTOR").unwrap();
+    static ref NUM_PARTITIONS: i32 = SETTINGS.get::<i32>("NUM_PARTITIONS").unwrap();
 }
 
 fn main() {
@@ -46,6 +47,9 @@ fn main() {
 
     let mut prev_timestamp = None;
 
+    // Round robin on the partition to send the record to
+    let mut partition = 0;
+
     // change to fake_event_stream.
     for (time, event) in event_stream {
         let timestamp: u64 = time.timestamp() as u64;
@@ -60,11 +64,18 @@ fn main() {
 
         prod.send(
             FutureRecord::to(&TOPIC)
-                .partition(0) // TODO
+                .partition(partition)
                 .payload(&event.payload)
                 .key("key"),
             -1
         );
-        println!("event at {} is -- {:?}", event.creation_date, event);
+
+        println!("sent event at {} to partition {} -- {:?}",
+                 event.creation_date,
+                 partition,
+                 event);
+
+        partition += 1;
+        partition = partition % *NUM_PARTITIONS;
     }
 }

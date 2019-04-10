@@ -15,7 +15,7 @@
 `~/kafka $ bin/kafka-server-start.sh config/server.properties`
 
 * terminal 3 -- main application  
-`~/dspa-project $ kafka-tools/delete_all_topics.sh && cargo run --release -- w1`
+`~/dspa-project $ kafka-tools/reset.sh && cargo run --release -- -w1`
 
 * terminal 4 -- producer  
 `~/dspa-project/producer $ cargo run --bin prod --release ../dataset/tests/task1/active/ # or other dataset path`

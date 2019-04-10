@@ -1,3 +1,13 @@
+/* TODO
+ * - include worker id when dumping state
+ * - check that each worker sees only the events that it is supposed to see
+ * - remove from the `ooo_events` hashmap the events that are older than the bounded delay
+ *   --> it means that they don't belong to any post handled by the current worker and should be discarded
+ * - review all kafka options we pass to the BaseConsumer config
+ * - handle the case when number of workers and number of partitions is not the same
+ * - more TODOs...
+ */
+
 extern crate rdkafka;
 extern crate serde;
 #[macro_use]
@@ -10,7 +20,7 @@ use colored::*;
 
 extern crate timely;
 use timely::dataflow::{Stream, Scope};
-use timely::dataflow::operators::{Operator, Inspect, Map};
+use timely::dataflow::operators::{Operator, Exchange, Branch, Broadcast, Inspect, Concat, Map};
 use timely::dataflow::channels::pact::Pipeline;
 
 extern crate chrono;
@@ -313,13 +323,30 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
 fn main() {
     timely::execute_from_args(std::env::args(), |worker| {
 
+        let partition = worker.index() as i32;
+
         worker.dataflow::<u64,_,_>(|scope| {
 
             let events_stream =
-                kafka::consumer::string_stream(scope, "events")
+                kafka::consumer::string_stream(scope, "events", partition)
                     .map(|record: String| event::deserialize(record));
 
-            events_stream
+            let (single, broad) = events_stream
+                .branch(|_, event| {
+                    match event {
+                        Event::Comment(c) => c.reply_to_comment_id != None,
+                        _ => false,
+                    }
+                });
+
+            let single = single.exchange(|event| event.target_post_id());
+            let broad  = broad.broadcast();
+
+            single
+                .concat(&broad)
+                // TODO make sure that each worker sees what it's supposed to see
+                .inspect(move |event|
+                         println!("{}", format!("[W{}] seen event {:?}", partition, event).bright_cyan().bold()))
                 .active_posts(ACTIVE_WINDOW_SECONDS)
                 .inspect(|stats: &HashMap<u64,Stats>| {
                     println!("{}", "inspect".bold().red());
