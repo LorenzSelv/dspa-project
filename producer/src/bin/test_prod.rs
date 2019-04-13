@@ -62,18 +62,33 @@ fn main() {
         prev_timestamp = Some(timestamp);
         thread::sleep(time::Duration::from_millis(delta));
 
-        prod.send(
-            FutureRecord::to(&TOPIC)
-                .partition(partition)
-                .payload(&event.payload)
-                .key("key"),
-            -1
-        );
-
-        println!("sent event at {} to partition {} -- {:?}",
-                 event.creation_date,
-                 partition,
-                 event);
+        if event.is_watermark {
+            for p in 0..*NUM_PARTITIONS {
+                prod.send(
+                    FutureRecord::to(&TOPIC)
+                        .partition(p)
+                        .payload(&event.payload)
+                        .key("key"),
+                    -1
+                );
+                println!("sent event at {} to partition {} -- {:?}",
+                         event.creation_date,
+                         p,
+                         event);
+            }
+        } else {
+            prod.send(
+                FutureRecord::to(&TOPIC)
+                    .partition(partition)
+                    .payload(&event.payload)
+                    .key("key"),
+                -1
+            );
+            println!("sent event at {} to partition {} -- {:?}",
+                     event.creation_date,
+                     partition,
+                     event);
+        }
 
         partition += 1;
         partition = partition % *NUM_PARTITIONS;

@@ -1,10 +1,9 @@
 /* TODO
- * - include worker id when dumping state
- * - check that each worker sees only the events that it is supposed to see
  * - remove from the `ooo_events` hashmap the events that are older than the bounded delay
  *   --> it means that they don't belong to any post handled by the current worker and should be discarded
  * - review all kafka options we pass to the BaseConsumer config
  * - handle the case when number of workers and number of partitions is not the same
+ * - change other producer
  * - more TODOs...
  */
 
@@ -86,6 +85,7 @@ struct ActivePostsState {
     // cur_* variables refer to the current window
     // next_* variables refer to the next window
 
+    worker_id: usize,
     // event ID --> post ID it refers to (root of the tree)
     root_of: HashMap<ID,ID>,
     // out-of-order events: id of missing event --> event that depends on it
@@ -102,8 +102,9 @@ struct ActivePostsState {
 
 impl ActivePostsState {
 
-    fn new() -> ActivePostsState {
+    fn new(worker_id: usize) -> ActivePostsState {
         ActivePostsState {
+            worker_id: worker_id,
             root_of: HashMap::<ID,ID>::new(),
             ooo_events: HashMap::<ID,Vec<Event>>::new(),
             cur_last_timestamp:  HashMap::<u64,u64>::new(),
@@ -115,7 +116,7 @@ impl ActivePostsState {
     }
 
     fn dump(&self) {
-        println!("{}", "Current state".bold().blue());
+        println!("{}", format!("{} {}", format!("[W{}]",self.worker_id).bold().blue(), "Current state".bold().blue()));
         println!("  root_of -- {:?}", self.root_of);
         dump_ooo_events(&self.ooo_events, 2);
         println!("{}", "  Current stats".bold().blue());
@@ -236,14 +237,14 @@ impl ActivePostsState {
 }
 
 trait ActivePosts<G: Scope> {
-    fn active_posts(&self, active_window_seconds: u64) -> Stream<G, HashMap<u64,Stats>>;
+    fn active_posts(&self, active_window_seconds: u64, worker_id: usize) -> Stream<G, HashMap<u64,Stats>>;
 }
 
 impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
 
-    fn active_posts(&self, active_window_seconds: u64) -> Stream<G, HashMap<u64,Stats>> {
+    fn active_posts(&self, active_window_seconds: u64, worker_id: usize) -> Stream<G, HashMap<u64,Stats>> {
 
-        let mut state: ActivePostsState = ActivePostsState::new();
+        let mut state: ActivePostsState = ActivePostsState::new(worker_id);
         let mut first_notification = true;
 
         self.unary_notify(Pipeline, "ActivePosts", None, move |input, output, notificator| {
@@ -346,8 +347,8 @@ fn main() {
                 .concat(&broad)
                 // TODO make sure that each worker sees what it's supposed to see
                 .inspect(move |event|
-                         println!("{}", format!("[W{}] seen event {:?}", partition, event).bright_cyan().bold()))
-                .active_posts(ACTIVE_WINDOW_SECONDS)
+                         println!("{}", format!("[W{}] seen event {:?}", partition, event.id()).bright_cyan().bold()))
+                .active_posts(ACTIVE_WINDOW_SECONDS, partition as usize)
                 .inspect(|stats: &HashMap<u64,Stats>| {
                     println!("{}", "inspect".bold().red());
                     dump_stats(stats, 4);
