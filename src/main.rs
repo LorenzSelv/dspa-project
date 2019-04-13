@@ -1,9 +1,8 @@
 /* TODO
- * - remove from the `ooo_events` hashmap the events that are older than the bounded delay
- *   --> it means that they don't belong to any post handled by the current worker and should be discarded
  * - review all kafka options we pass to the BaseConsumer config
  * - handle the case when number of workers and number of partitions is not the same
  * - change other producer
+ * - cargo fmt  
  * - more TODOs...
  */
 
@@ -234,6 +233,12 @@ impl ActivePostsState {
     fn push_ooo_event(&mut self, event: Event, target_id: ID) {
         self.ooo_events.entry(target_id).or_insert(Vec::new()).push(event);
     }
+
+    fn clean_ooo_events(&mut self, timestamp: u64) {
+        self.ooo_events = self.ooo_events.clone().into_iter().filter(|(_, events)| {
+            events.iter().all(|event| event.timestamp() > timestamp)
+        }).collect::<HashMap<_,_>>();
+    }
 }
 
 trait ActivePosts<G: Scope> {
@@ -307,6 +312,8 @@ impl <G:Scope<Timestamp=u64>> ActivePosts<G> for Stream<G, Event> {
 
                 let mut session = output.session(&time);
                 session.give(stats);
+
+                state.clean_ooo_events(timestamp);
 
                 println!("~~~~~~~~~~~~~~~~~~~~~~~~");
             });
