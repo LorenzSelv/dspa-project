@@ -29,6 +29,7 @@ lazy_static! {
     static ref DELAY_PROB: f64 = SETTINGS.get::<f64>("DELAY_PROB").unwrap();
     static ref MAX_DELAY_SEC: u64 = SETTINGS.get::<u64>("MAX_DELAY_SEC").unwrap();
     static ref SPEEDUP_FACTOR: u64 = SETTINGS.get::<u64>("SPEEDUP_FACTOR").unwrap();
+    static ref NUM_PARTITIONS: i32 = SETTINGS.get::<i32>("NUM_PARTITIONS").unwrap();
 }
 
 fn main() {
@@ -46,17 +47,17 @@ fn main() {
 
     let prod2 = prod1.clone();
 
-    let (tx, rx) = mpsc::channel::<Event>();
+    let (tx, rx) = mpsc::channel::<(Event, i32)>();
 
     let handle = thread::spawn(move || {
         let delay = time::Duration::from_millis(*MAX_DELAY_SEC*1000 / *SPEEDUP_FACTOR); // TODO wrapper
         loop {
             thread::sleep(delay);
-            while let Ok(event) = rx.try_recv() {
+            while let Ok((event, partition)) = rx.try_recv() {
                 println!("[delayed] event at {} is -- {:?}", event.creation_date, event);
                 prod1.send(
                     FutureRecord::to(&TOPIC)
-                        .partition(0) // TODO
+                        .partition(partition)
                         .payload(&event.payload)
                         .key("key"),
                         -1
@@ -74,6 +75,9 @@ fn main() {
     let mut rng = rand::thread_rng();
     let mut prev_timestamp = None;
 
+    // Round robin on the partition to send the record to
+    let mut partition = 0;
+
     let mut prev_was_delayed = false;
 
     for event in event_stream {
@@ -88,30 +92,35 @@ fn main() {
 
         // do not delay watermarks
         if event.is_watermark {
-            prod2.send(
-                FutureRecord::to(&TOPIC)
-                    .partition(0) // TODO
-                    .payload(&event.payload)
-                    .key("key"),
+            for p in 0..*NUM_PARTITIONS {
+                prod2.send(
+                    FutureRecord::to(&TOPIC)
+                        .partition(p)
+                        .payload(&event.payload)
+                        .key("key"),
                     -1
-            );
+                );
+            }
             continue;
         }
 
         if !prev_was_delayed && rng.gen_range(0.0, 1.0) < *DELAY_PROB {
             prev_was_delayed = true;
-            tx.send(event).unwrap();
+            tx.send((event, partition)).unwrap();
         } else {
             prev_was_delayed = false;
             println!("[ontime]  event at {} is -- {:?}", event.creation_date, event);
             prod2.send(
                 FutureRecord::to(&TOPIC)
-                    .partition(0) // TODO
+                    .partition(partition)
                     .payload(&event.payload)
                     .key("key"),
                     -1
             );
         }
+
+        partition += 1;
+        partition = partition % *NUM_PARTITIONS;
     }
 
     drop(tx);

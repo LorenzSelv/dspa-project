@@ -1,8 +1,6 @@
 /* TODO
  * - review all kafka options we pass to the BaseConsumer config
  * - handle the case when number of workers and number of partitions is not the same
- * - change other producer
- * - cargo fmt
  * - more TODOs...
  */
 
