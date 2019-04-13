@@ -1,10 +1,10 @@
 use timely::dataflow::{Scope, Stream};
 
 use rdkafka::config::ClientConfig;
-use rdkafka::consumer::{Consumer, BaseConsumer, EmptyConsumerContext};
+use rdkafka::consumer::{BaseConsumer, Consumer, EmptyConsumerContext};
 use rdkafka::TopicPartitionList;
 
-use chrono::{Utc,TimeZone};
+use chrono::{TimeZone, Utc};
 
 use super::source::kafka_source;
 
@@ -17,13 +17,9 @@ lazy_static! {
     static ref MAX_DELAY_SEC: u64 = SETTINGS.get::<u64>("MAX_DELAY_SEC").unwrap();
 }
 
-pub fn string_stream<'a, G> (
-    scope: &mut G,
-    topic: &'static str,
-    partition: i32
-) -> Stream<G, String>
+pub fn string_stream<'a, G>(scope: &mut G, topic: &'static str, partition: i32) -> Stream<G, String>
 where
-    G: Scope<Timestamp=u64>
+    G: Scope<Timestamp = u64>,
 {
     let brokers = "localhost:9092";
 
@@ -39,35 +35,37 @@ where
         .set("bootstrap.servers", &brokers);
 
     // Create a Kafka consumer.
-    let consumer : BaseConsumer<EmptyConsumerContext> = consumer_config.create().expect("Couldn't create consumer");
+    let consumer: BaseConsumer<EmptyConsumerContext> =
+        consumer_config.create().expect("Couldn't create consumer");
     consumer.subscribe(&[&topic.to_string()]).expect("Failed to subscribe to topic");
 
     let mut partition_list = TopicPartitionList::new();
     partition_list.add_partition(topic, partition);
     consumer.assign(&partition_list).expect("error in assigning partition list");
 
-    println!("[kafka-consumer] subscribed to topic \"{}\" with assignment {:?}",
-             topic,
-             consumer.assignment());
+    println!(
+        "[kafka-consumer] subscribed to topic \"{}\" with assignment {:?}",
+        topic,
+        consumer.assignment()
+    );
 
     kafka_source(scope, "KafkaStringSourceStream", consumer, |bytes, capability, output| {
-
         // If the bytes are utf8, convert to string and send.
         if let Ok(text) = std::str::from_utf8(bytes) {
+            let timestamp = if text.starts_with("WATERMARK") {
+                // format is WATERMARK|<timestamp>
+                let t = text.split("|").collect::<Vec<_>>()[1].trim();
+                t.parse::<u64>().unwrap()
+            } else {
+                output.session(capability).give(text.to_string());
+                let date_str = text.split("|").collect::<Vec<_>>()[2].trim();
+                let date = Utc
+                    .datetime_from_str(date_str, "%FT%TZ")
+                    .or(Utc.datetime_from_str(date_str, "%FT%T%.3fZ"))
+                    .expect("failed to parse");
 
-            let timestamp =
-                if text.starts_with("WATERMARK") { // format is WATERMARK|<timestamp>
-                    let t = text.split("|").collect::<Vec<_>>()[1].trim();
-                    t.parse::<u64>().unwrap()
-                } else {
-                    output.session(capability).give(text.to_string());
-                    let date_str = text.split("|").collect::<Vec<_>>()[2].trim();
-                    let date = Utc.datetime_from_str(date_str, "%FT%TZ")
-                           .or(Utc.datetime_from_str(date_str, "%FT%T%.3fZ"))
-                           .expect("failed to parse");
-
-                    date.timestamp() as u64
-                };
+                date.timestamp() as u64
+            };
 
             let time = *capability.time();
             if timestamp - *MAX_DELAY_SEC > time {
@@ -77,7 +75,8 @@ where
 
             // Indicate that we are not yet done.
             false
-        }
-        else { true } // if false keeps on waiting
+        } else {
+            true
+        } // if false keeps on waiting
     })
 }

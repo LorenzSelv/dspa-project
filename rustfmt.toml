@@ -1,0 +1,7 @@
+edition = "2018"
+unstable_features = true
+indent_style = "Block"
+use_small_heuristics = "Max"
+enum_discrim_align_threshold = 15
+struct_field_align_threshold = 15
+fn_single_line = true
