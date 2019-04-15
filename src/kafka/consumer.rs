@@ -15,9 +15,15 @@ lazy_static! {
         s
     };
     static ref MAX_DELAY_SEC: u64 = SETTINGS.get::<u64>("MAX_DELAY_SEC").unwrap();
+    static ref NUM_PARTITIONS: i32 = SETTINGS.get::<i32>("NUM_PARTITIONS").unwrap();
 }
 
-pub fn string_stream<'a, G>(scope: &mut G, topic: &'static str, partition: i32) -> Stream<G, String>
+pub fn string_stream<'a, G>(
+    scope: &mut G,
+    topic: &'static str,
+    index: i32,
+    peers: i32,
+) -> Stream<G, String>
 where
     G: Scope<Timestamp = u64>,
 {
@@ -40,7 +46,11 @@ where
     consumer.subscribe(&[&topic.to_string()]).expect("Failed to subscribe to topic");
 
     let mut partition_list = TopicPartitionList::new();
-    partition_list.add_partition(topic, partition);
+    let mut partition: i32 = index;
+    while partition < *NUM_PARTITIONS {
+        partition_list.add_partition(topic, partition);
+        partition += peers;
+    }
     consumer.assign(&partition_list).expect("error in assigning partition list");
 
     println!(

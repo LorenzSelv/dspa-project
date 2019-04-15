@@ -367,11 +367,13 @@ impl<G: Scope<Timestamp = u64>> ActivePosts<G> for Stream<G, Event> {
 
 fn main() {
     timely::execute_from_args(std::env::args(), |worker| {
-        let partition = worker.index() as i32;
+        let index = worker.index() as i32;
+        let total_workers = worker.peers() as i32;
 
         worker.dataflow::<u64, _, _>(|scope| {
-            let events_stream = kafka::consumer::string_stream(scope, "events", partition)
-                .map(|record: String| event::deserialize(record));
+            let events_stream =
+                kafka::consumer::string_stream(scope, "events", index, total_workers)
+                    .map(|record: String| event::deserialize(record));
 
             let (single, broad) = events_stream.branch(|_, event| match event {
                 Event::Comment(c) => c.reply_to_comment_id != None,
@@ -387,12 +389,10 @@ fn main() {
                 .inspect(move |event| {
                     println!(
                         "{}",
-                        format!("[W{}] seen event {:?}", partition, event.id())
-                            .bright_cyan()
-                            .bold()
+                        format!("[W{}] seen event {:?}", index, event.id()).bright_cyan().bold()
                     )
                 })
-                .active_posts(ACTIVE_WINDOW_SECONDS, partition as usize)
+                .active_posts(ACTIVE_WINDOW_SECONDS, index as usize)
                 .inspect(|stats: &HashMap<u64, Stats>| {
                     println!("{}", "inspect".bold().red());
                     dump_stats(stats, 4);
