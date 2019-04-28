@@ -13,6 +13,7 @@ impl Default for ID {
 }
 
 impl ID {
+    #[allow(dead_code)]
     pub fn u64(&self) -> u64 {
         match self {
             ID::Post(id) => *id,
@@ -39,6 +40,7 @@ pub enum Event {
 
 impl abomonation::Abomonation for Event {}
 
+#[allow(dead_code)]
 impl Event {
     pub fn timestamp(&self) -> u64 {
         match self {
