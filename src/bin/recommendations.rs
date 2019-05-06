@@ -85,13 +85,14 @@ impl FriendRecommendations {
     }
 
     fn initialize(&mut self) {
-        let query = format!("SELECT B.person1, COUNT(*) as count
+        // compute common friends
+        let query = format!("SELECT B.person_id1, COUNT(*) as count
                              FROM person_knows_person AS A,
                                 (SELECT *
                                  FROM person_knows_person
-                                 WHERE person2 != {} AND person1 != {}) B
-                             WHERE A.person1 = {} AND A.person2 = B.person2
-                             GROUP BY (A.person1, B.person1)",
+                                 WHERE person_id2 != {} AND person_id1 != {}) B
+                             WHERE A.person_id1 = {} AND A.person_id2 = B.person_id2
+                             GROUP BY (A.person_id1, B.person_id1)",
                             self.person_id, self.person_id, self.person_id);
 
         for row in &self.conn.query(&query, &[]).unwrap() {
@@ -111,6 +112,8 @@ impl FriendRecommendations {
                 self.top_scores.pop();
             }
         }
+
+
     }
 
     fn get_recommendations(&mut self) -> Vec<u32> {
