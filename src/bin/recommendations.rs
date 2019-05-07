@@ -15,7 +15,7 @@ extern crate serde_derive;
 use colored::*;
 
 use postgres::{Connection, TlsMode};
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use std::cmp::Ordering;
 
@@ -40,6 +40,7 @@ use dspa::db::query;
 const ACTIVE_WINDOW_SECONDS: u64 = 4 * 3600;
 const UPDATE_WINDOW_SECONDS: u64 = 1 * 3600;
 const RECOMMENDATION_SIZE: u64 = 5;
+const POSTGRES_URI: &'static str = "postgres://postgres:password@localhost:5432";
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 struct Score {
@@ -65,6 +66,7 @@ struct FriendRecommendations {
     ooo_events: Vec<Event>,
     conn: Connection,
     pub next_notification_time: u64,
+    friends: HashSet<u64>,
 }
 
 impl FriendRecommendations {
@@ -74,30 +76,62 @@ impl FriendRecommendations {
             all_scores: HashMap::<u64, u64>::new(),
             top_scores: BinaryHeap::<Score>::new(),
             ooo_events: Vec::<Event>::new(), // process after notification
-            conn: Connection::connect("postgres://postgres:password@localhost:5432", TlsMode::None)
-                .unwrap(),
-            next_notification_time: std::u64::MAX,
+            conn: Connection::connect(POSTGRES_URI, TlsMode::None).unwrap(),
+            next_notification_time: std::u64::MAX, // TODO move outside
+            friends: HashSet::<u64>::new(),
         }
     }
 
     fn initialize(&mut self) {
         // compute common friends
-        let query = query::common_friends(self.person_id);
-
+        let mut query = query::friends(self.person_id);
         for row in &self.conn.query(&query, &[]).unwrap() {
             let person_id = row.get::<_, i64>(0) as u64;
-            let count = row.get::<_, i64>(1) as u64;
+            self.friends.insert(person_id);
+        }
 
-            self.all_scores.insert(person_id, count);
+        query = query::common_friends(self.person_id);
+        for row in &self.conn.query(&query, &[]).unwrap() {
+            let person_id = row.get::<_, i64>(0) as u64;
+            let score = row.get::<_, i64>(1) as u64;
 
-            if self.top_scores.len() < RECOMMENDATION_SIZE as usize
-                || self.top_scores.peek().unwrap().val < count
-            {
-                self.top_scores.push(Score { person_id: person_id, val: count })
-            };
+            if self.friends.contains(&person_id) {
+                continue;
+            }
 
-            if self.top_scores.len() > RECOMMENDATION_SIZE as usize {
+            *self.all_scores.entry(person_id).or_insert(0) += score;
+        }
+
+        query = query::work_at(self.person_id);
+        for row in &self.conn.query(&query, &[]).unwrap() {
+            let person_id = row.get::<_, i64>(0) as u64;
+            let score = row.get::<_, i64>(1) as u64;
+
+            if self.friends.contains(&person_id) {
+                continue;
+            }
+
+            *self.all_scores.entry(person_id).or_insert(0) += score; // TODO scale
+        }
+
+        query = query::study_at(self.person_id);
+        for row in &self.conn.query(&query, &[]).unwrap() {
+            let person_id = row.get::<_, i64>(0) as u64;
+            let score = row.get::<_, i64>(1) as u64;
+
+            if self.friends.contains(&person_id) {
+                continue;
+            }
+
+            *self.all_scores.entry(person_id).or_insert(0) += score; // TODO scale
+        }
+
+        for (&person_id, &score) in self.all_scores.iter() {
+            if self.top_scores.len() < RECOMMENDATION_SIZE as usize {
+                self.top_scores.push(Score { person_id: person_id, val: score })
+            } else if self.top_scores.peek().unwrap().val < score {
                 self.top_scores.pop();
+                self.top_scores.push(Score { person_id: person_id, val: score })
             }
         }
     }
