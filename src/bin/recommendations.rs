@@ -6,9 +6,7 @@
 
 extern crate rdkafka;
 extern crate serde;
-#[macro_use]
 extern crate serde_derive;
-#[macro_use]
 extern crate lazy_static;
 extern crate config;
 extern crate postgres;
@@ -32,10 +30,11 @@ use std::cmp::min;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-mod event;
-use event::{Event};
+extern crate dspa;
+use dspa::event;
+use dspa::event::{Event};
 
-mod kafka;
+use dspa::kafka;
 
 const ACTIVE_WINDOW_SECONDS: u64 = 4 * 3600;
 const UPDATE_WINDOW_SECONDS: u64 = 1 * 3600;

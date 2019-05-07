@@ -6,9 +6,7 @@
 
 extern crate rdkafka;
 extern crate serde;
-#[macro_use]
 extern crate serde_derive;
-#[macro_use]
 extern crate lazy_static;
 extern crate config;
 
@@ -28,10 +26,11 @@ use std::collections::{HashMap, HashSet};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-mod event;
-use event::{Event, ID};
+extern crate dspa;
+use dspa::event;
+use dspa::event::{Event, ID};
 
-mod kafka;
+use dspa::kafka;
 
 const ACTIVE_WINDOW_SECONDS: u64 = 12 * 3600;
 

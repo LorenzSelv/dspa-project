@@ -1,5 +1,5 @@
 [package]
-name = "dspa-project"
+name = "dspa"
 version = "0.1.0"
 authors = ["Lorenzo Selvatici <selorenz@student.ethz.ch>", "Sara Decova <decovas@student.ethz.ch>"]
 edition = "2018"
