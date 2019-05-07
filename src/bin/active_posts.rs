@@ -23,6 +23,8 @@ use chrono::{TimeZone, Utc};
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 
+use std::string::ToString;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -43,7 +45,6 @@ struct Stats {
 
 impl Stats {
     fn new() -> Stats { Stats { num_comments: 0, num_replies: 0, unique_people: HashSet::new() } }
-
     fn new_comment(&mut self) { self.num_comments += 1; }
     fn new_reply(&mut self) { self.num_replies += 1; }
     fn new_person(&mut self, id: u64) { self.unique_people.insert(id); }
@@ -77,14 +78,221 @@ fn dump_ooo_events(ooo_events: &HashMap<ID, Vec<Event>>, num_spaces: usize) {
     println!("{}----", spaces);
 }
 
-struct ActivePostsState {
-    // cur_* variables refer to the current window
-    // next_* variables refer to the next window
+struct PostTreesState {
     worker_id: usize,
     // event ID --> post ID it refers to (root of the tree)
     root_of: HashMap<ID, ID>,
     // out-of-order events: id of missing event --> event that depends on it
     ooo_events: HashMap<ID, Vec<Event>>,
+    pending_stat_updates: Vec<StatUpdate>,
+}
+
+impl PostTreesState {
+    fn new(worker_id: usize) -> PostTreesState {
+        PostTreesState {
+            worker_id:  worker_id,
+            root_of:    HashMap::<ID, ID>::new(),
+            ooo_events: HashMap::<ID, Vec<Event>>::new(),
+            pending_stat_updates: Vec::<StatUpdate>::new(),
+        }
+    }
+
+    fn dump(&self) {
+        println!(
+            "{}",
+            format!(
+                "{} {}",
+                format!("[W{}]", self.worker_id).bold().blue(),
+                "Current state".bold().blue()
+            )
+        );
+        println!("  root_of -- {:?}", self.root_of);
+        dump_ooo_events(&self.ooo_events, 2);
+    }
+
+    fn update_post_tree(&mut self, event: &Event) -> (Option<ID>, Option<ID>) {
+        match event {
+            Event::Post(post) => {
+                self.root_of.insert(post.post_id, post.post_id);
+                (None, Some(post.post_id))
+            }
+            Event::Like(like) => {
+                // likes are not stored in the tree
+                // TODO post might not have been received yet
+                (Some(like.post_id), Some(like.post_id)) // can only like a post
+            }
+            Event::Comment(comment) => {
+                let reply_to_id = comment.reply_to_post_id.or(comment.reply_to_comment_id).unwrap();
+
+                if let Some(&root_post_id) = self.root_of.get(&reply_to_id) {
+                    self.root_of.insert(comment.comment_id, root_post_id);
+                    (Some(reply_to_id), Some(root_post_id))
+                } else {
+                    (Some(reply_to_id), None)
+                }
+            }
+        }
+    }
+
+    /// process events that have `id` as their target,
+    /// recursively process the newly inserted ids
+    fn process_ooo_events(&mut self, id: ID) {
+        if let Some(events) = self.ooo_events.remove(&id) {
+            println!("-- {} for id = {:?}", "process_ooo_events".bold().yellow(), id);
+
+            let mut new_ids = Vec::new();
+            for event in events {
+                let (opt_target_id, opt_root_post_id) = self.update_post_tree(&event);
+                assert!(opt_target_id.unwrap() == id, "wtf");
+                let root_post_id =
+                    opt_root_post_id.expect("[process_ooo_events] root_post_id is None");
+
+                self.append_stat_update(&event, root_post_id.u64());
+
+                if let Some(new_id) = event.id() {
+                    new_ids.push(new_id)
+                }
+            }
+
+            // adding events might unlock other ooo events
+            for new_id in new_ids.drain(..) {
+                self.process_ooo_events(new_id);
+            }
+        }
+    }
+
+    fn push_ooo_event(&mut self, event: Event, target_id: ID) {
+        self.ooo_events.entry(target_id).or_insert(Vec::new()).push(event);
+    }
+
+    fn clean_ooo_events(&mut self, timestamp: u64) {
+        self.ooo_events = self
+            .ooo_events
+            .clone()
+            .into_iter()
+            .filter(|(_, events)| events.iter().all(|event| event.timestamp() > timestamp))
+            .collect::<HashMap<_, _>>();
+    }
+    
+    fn append_stat_update(&mut self, event: &Event, root_post_id: u64) {
+        let update_type = 
+            match event {
+                Event::Post(_) => StatUpdateType::Post,
+                Event::Like(_) => StatUpdateType::Like,
+                Event::Comment(comment) => {
+                    if comment.reply_to_post_id != None {
+                        StatUpdateType::Comment
+                    } else {
+                        StatUpdateType::Reply
+                    }
+                },
+        };
+
+        let update = StatUpdate {
+            update_type: update_type,
+            post_id: root_post_id,
+            person_id: event.person_id(),
+            timestamp: event.timestamp(),
+        };
+
+        self.pending_stat_updates.push(update);
+    }
+}
+
+trait PostTrees<G: Scope> {
+    fn post_trees(
+        &self,
+        worker_id: usize,
+    ) -> Stream<G, StatUpdate>; // TODO
+}
+
+impl<G: Scope<Timestamp = u64>> PostTrees<G> for Stream<G, Event> {
+
+    fn post_trees(
+        &self,
+        worker_id: usize,
+    // ) -> Stream<G, (StatUpdate, RecomUpdate)> {
+    ) -> Stream<G, StatUpdate> { // TODO
+        
+        let mut state: PostTreesState = PostTreesState::new(worker_id);
+            
+        self.unary(Pipeline, "PostTrees", move |_,_| move |input, output| {
+
+            input.for_each(|time, data| {
+                let mut buf = Vec::<Event>::new();
+                data.swap(&mut buf);
+
+                for event in buf.drain(..) {
+                    println!("{} {}", "+".bold().yellow(), event.to_string().bold().yellow());
+
+                    let (opt_target_id, opt_root_post_id) = state.update_post_tree(&event);
+
+                    match opt_root_post_id {
+                        Some(root_post_id) => {
+                            if let ID::Post(pid) = root_post_id {
+                                state.append_stat_update(&event, pid);
+                            } else {
+                                panic!("expect ID::Post, got ID::Comment");
+                            }
+
+                            // check whether we can pop some stuff out of the ooo map
+                            if let Some(eid) = event.id() {
+                                state.process_ooo_events(eid);
+                            }
+                        }
+                        None => {
+                            state.push_ooo_event(event, opt_target_id.unwrap());
+                        }
+                    };
+
+                    state.dump();
+                }
+
+                let mut session = output.session(&time);
+                for stat_update in state.pending_stat_updates.drain(..) {
+                    session.give(stat_update); 
+                }
+
+                // TODO make sure state is cleaned properly
+                // TODO make do only every once in a while .. ?
+                state.clean_ooo_events(*time.time());
+            });
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+enum StatUpdateType {
+    Post,
+    Comment,
+    Reply,
+    Like
+}
+
+#[derive(Clone)]
+struct StatUpdate {
+    pub update_type: StatUpdateType,
+    pub post_id: u64,
+    pub person_id: u64,
+    pub timestamp: u64,
+}
+
+impl ToString for StatUpdate {
+    fn to_string(&self) -> String {
+        format!(
+            "{:?} at timestamp {} -- to post_id = {}, by = {}",
+            self.update_type,
+            self.timestamp,
+            self.post_id,
+            self.person_id
+        )
+    }
+}
+
+struct ActivePostsState {
+    // cur_* variables refer to the current window
+    // next_* variables refer to the next window
+    worker_id: usize,
     // post ID --> timestamp of last event associated with it
     cur_last_timestamp:  HashMap<u64, u64>,
     next_last_timestamp: HashMap<u64, u64>,
@@ -92,15 +300,13 @@ struct ActivePostsState {
     cur_stats:  HashMap<u64, Stats>,
     next_stats: HashMap<u64, Stats>,
 
-    pub next_notification_time: u64,
+    next_notification_time: u64,
 }
 
 impl ActivePostsState {
     fn new(worker_id: usize) -> ActivePostsState {
         ActivePostsState {
             worker_id:              worker_id,
-            root_of:                HashMap::<ID, ID>::new(),
-            ooo_events:             HashMap::<ID, Vec<Event>>::new(),
             cur_last_timestamp:     HashMap::<u64, u64>::new(),
             next_last_timestamp:    HashMap::<u64, u64>::new(),
             cur_stats:              HashMap::<u64, Stats>::new(),
@@ -118,8 +324,6 @@ impl ActivePostsState {
                 "Current state".bold().blue()
             )
         );
-        println!("  root_of -- {:?}", self.root_of);
-        dump_ooo_events(&self.ooo_events, 2);
         println!("{}", "  Current stats".bold().blue());
         println!("    cur_last_timestamp -- {:?}", self.cur_last_timestamp);
         dump_stats(&self.cur_stats, 4);
@@ -128,100 +332,44 @@ impl ActivePostsState {
         dump_stats(&self.next_stats, 4);
     }
 
-    fn update_post_tree(&mut self, event: &Event) -> (Option<ID>, Option<ID>) {
-        match event {
-            Event::Post(post) => {
-                self.root_of.insert(post.post_id, post.post_id);
-                (None, Some(post.post_id))
-            }
-            Event::Like(like) => {
-                // likes are not stored in the tree
-                (Some(like.post_id), Some(like.post_id)) // can only like a post
-            }
-            Event::Comment(comment) => {
-                let reply_to_id = comment.reply_to_post_id.or(comment.reply_to_comment_id).unwrap();
-
-                if let Some(&root_post_id) = self.root_of.get(&reply_to_id) {
-                    self.root_of.insert(comment.comment_id, root_post_id);
-                    (Some(reply_to_id), Some(root_post_id))
-                } else {
-                    (Some(reply_to_id), None)
-                }
-            }
-        }
-    }
-
     fn __update_stats(
-        event: &Event,
-        root_post_id: u64,
+        stat_update: &StatUpdate,
         last_timestamp: &mut HashMap<u64, u64>,
         stats: &mut HashMap<u64, Stats>,
     ) {
-        let timestamp = event.timestamp();
+        let post_id = stat_update.post_id;
+        let timestamp = stat_update.timestamp;
 
         // update last_timestamp
-        match last_timestamp.get(&root_post_id) {
-            Some(&prev) => last_timestamp.insert(root_post_id, max(prev, timestamp)),
-            None => last_timestamp.insert(root_post_id, timestamp),
+        match last_timestamp.get(&post_id) {
+            Some(&prev) => last_timestamp.insert(post_id, max(prev, timestamp)),
+            None => last_timestamp.insert(post_id, timestamp),
         };
 
-        // update number of comments / replies
-        if let Event::Comment(comment) = &event {
-            if comment.reply_to_post_id != None {
-                stats.get_mut(&root_post_id).unwrap().new_comment();
-            } else {
-                stats.get_mut(&root_post_id).unwrap().new_reply();
-            }
+        match stat_update.update_type {
+            StatUpdateType::Comment =>
+                stats.get_mut(&post_id).unwrap().new_comment(),
+            StatUpdateType::Reply =>
+                stats.get_mut(&post_id).unwrap().new_reply(),
+            _ => {}, // nothing to do for posts and likes
         }
 
         // update unique people set
-        stats.entry(root_post_id).or_insert(Stats::new()).new_person(event.person_id());
+        stats.entry(post_id).or_insert(Stats::new()).new_person(stat_update.person_id);
     }
 
-    fn update_stats(&mut self, event: &Event, root_post_id: u64) -> u64 {
-        let timestamp = event.timestamp();
+    fn update_stats(&mut self, stat_update: &StatUpdate) {
         ActivePostsState::__update_stats(
-            &event,
-            root_post_id,
+            &stat_update,
             &mut self.next_last_timestamp,
             &mut self.next_stats,
         );
-        if timestamp <= self.next_notification_time {
+        if stat_update.timestamp <= self.next_notification_time {
             ActivePostsState::__update_stats(
-                &event,
-                root_post_id,
+                &stat_update,
                 &mut self.cur_last_timestamp,
                 &mut self.cur_stats,
             );
-        }
-        timestamp
-    }
-
-    /// process events that have `id` as their target,
-    /// recursively process the newly inserted ids
-    fn process_ooo_events(&mut self, id: ID) {
-        if let Some(events) = self.ooo_events.remove(&id) {
-            println!("-- {} for id = {:?}", "process_ooo_events".bold().yellow(), id);
-
-            let mut new_ids = Vec::new();
-            for event in events {
-                let (opt_target_id, opt_root_post_id) = self.update_post_tree(&event);
-                assert!(opt_target_id.unwrap() == id, "wtf");
-                let root_post_id =
-                    opt_root_post_id.expect("[process_ooo_events] root_post_id is None");
-
-                self.update_stats(&event, root_post_id.u64());
-
-                if let Some(new_id) = event.id() {
-                    new_ids.push(new_id)
-                }
-            }
-
-            // adding events might unlock other ooo events
-            // TODO foreach
-            for new_id in new_ids.drain(..) {
-                self.process_ooo_events(new_id);
-            }
         }
     }
 
@@ -230,6 +378,7 @@ impl ActivePostsState {
         cur_timestamp: u64,
         active_window_seconds: u64,
     ) -> HashMap<u64, Stats> {
+        // TODO refactor
         let active_posts = self
             .cur_last_timestamp
             .iter()
@@ -254,19 +403,6 @@ impl ActivePostsState {
 
         active_posts_stats
     }
-
-    fn push_ooo_event(&mut self, event: Event, target_id: ID) {
-        self.ooo_events.entry(target_id).or_insert(Vec::new()).push(event);
-    }
-
-    fn clean_ooo_events(&mut self, timestamp: u64) {
-        self.ooo_events = self
-            .ooo_events
-            .clone()
-            .into_iter()
-            .filter(|(_, events)| events.iter().all(|event| event.timestamp() > timestamp))
-            .collect::<HashMap<_, _>>();
-    }
 }
 
 trait ActivePosts<G: Scope> {
@@ -277,7 +413,7 @@ trait ActivePosts<G: Scope> {
     ) -> Stream<G, HashMap<u64, Stats>>;
 }
 
-impl<G: Scope<Timestamp = u64>> ActivePosts<G> for Stream<G, Event> {
+impl<G: Scope<Timestamp = u64>> ActivePosts<G> for Stream<G, StatUpdate> {
     fn active_posts(
         &self,
         active_window_seconds: u64,
@@ -288,36 +424,19 @@ impl<G: Scope<Timestamp = u64>> ActivePosts<G> for Stream<G, Event> {
 
         self.unary_notify(Pipeline, "ActivePosts", None, move |input, output, notificator| {
             input.for_each(|time, data| {
-                let mut buf = Vec::<Event>::new();
+                let mut buf = Vec::<StatUpdate>::new();
                 data.swap(&mut buf);
 
                 let mut min_t = std::u64::MAX;
 
-                for event in buf.drain(..) {
-                    println!("{} {}", "+".bold().yellow(), event.to_string().bold().yellow());
+                for stat_update in buf.drain(..) {
+                    println!("{} {}", "+".bold().yellow(), stat_update.to_string().bold().yellow());
 
-                    let (opt_target_id, opt_root_post_id) = state.update_post_tree(&event);
-
-                    match opt_root_post_id {
-                        Some(root_post_id) => {
-                            if let ID::Post(pid) = root_post_id {
-                                let timestamp = state.update_stats(&event, pid);
-                                min_t = min(min_t, timestamp);
-                            } else {
-                                panic!("expect ID::Post, got ID::Comment");
-                            }
-
-                            // check whether we can pop some stuff out of the ooo map
-                            if let Some(eid) = event.id() {
-                                state.process_ooo_events(eid);
-                            }
-                        }
-                        None => {
-                            state.push_ooo_event(event, opt_target_id.unwrap());
-                        }
-                    };
+                    state.update_stats(&stat_update);
 
                     state.dump();
+
+                    min_t = min(min_t, stat_update.timestamp);
                 }
 
                 // first event might be out of order ..
@@ -340,7 +459,6 @@ impl<G: Scope<Timestamp = u64>> ActivePosts<G> for Stream<G, Event> {
                 let date = Utc.timestamp(timestamp as i64, 0);
                 println!("~~~~~~~~~~~~~~~~~~~~~~~~");
                 println!("{} at timestamp {}", "notified".bold().green(), date);
-                state.dump();
 
                 let stats = state.active_posts_stats(timestamp, active_window_seconds);
                 println!("  {}", "Active post stats".bold().blue());
@@ -348,8 +466,6 @@ impl<G: Scope<Timestamp = u64>> ActivePosts<G> for Stream<G, Event> {
 
                 let mut session = output.session(&time);
                 session.give(stats);
-
-                state.clean_ooo_events(timestamp);
 
                 println!("~~~~~~~~~~~~~~~~~~~~~~~~");
             });
@@ -382,7 +498,7 @@ fn main() {
             let single = single.exchange(|event| event.target_post_id());
             let broad = broad.broadcast();
 
-            single
+            let stat_updates = single
                 .concat(&broad)
                 // TODO make sure that each worker sees what it's supposed to see
                 .inspect(move |event| {
@@ -391,6 +507,9 @@ fn main() {
                         format!("[W{}] seen event {:?}", index, event.id()).bright_cyan().bold()
                     )
                 })
+                .post_trees(index as usize);
+
+            stat_updates
                 .active_posts(ACTIVE_WINDOW_SECONDS, index as usize)
                 .inspect(|stats: &HashMap<u64, Stats>| {
                     println!("{}", "inspect".bold().red());
