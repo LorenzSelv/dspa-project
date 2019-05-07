@@ -16,9 +16,8 @@ use colored::*;
 
 use postgres::{Connection, TlsMode};
 use std::collections::{BinaryHeap, HashMap};
-use std::cmp::Ordering;
-use ordered_float::NotNan;
 
+use std::cmp::Ordering;
 
 extern crate timely;
 use timely::dataflow::channels::pact::Pipeline;
@@ -36,14 +35,16 @@ use dspa::event::{Event};
 
 use dspa::kafka;
 
+use dspa::db::query;
+
 const ACTIVE_WINDOW_SECONDS: u64 = 4 * 3600;
 const UPDATE_WINDOW_SECONDS: u64 = 1 * 3600;
 const RECOMMENDATION_SIZE: u64   = 5;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 struct Score {
-    person_id: u32,
-    val: NotNan<f32>,
+    person_id: u64,
+    val: u64,
 }
 
 impl Ord for Score {
@@ -61,8 +62,8 @@ impl PartialOrd for Score {
 }
 
 struct FriendRecommendations {
-    person_id:  u32,
-    all_scores: HashMap<u32, f32>,  // person_id, score_val
+    person_id:  u64,
+    all_scores: HashMap<u64, u64>,  // person_id, score_val
     top_scores: BinaryHeap<Score>,  // size = RECOMMENDATION_SIZE
     ooo_events: Vec<Event>,
     conn:       Connection,
@@ -70,14 +71,14 @@ struct FriendRecommendations {
 }
 
 impl FriendRecommendations {
-    fn new(person_id: u32) -> FriendRecommendations {
+    fn new(person_id: u64) -> FriendRecommendations {
         FriendRecommendations {
             person_id:              person_id,
-            all_scores:             HashMap::<u32, f32>::new(),
+            all_scores:             HashMap::<u64, u64>::new(),
             top_scores:             BinaryHeap::<Score>::new(),
             ooo_events:             Vec::<Event>::new(),  // process after notification
             conn:                   Connection::connect(
-                                        "postgres://postgres:postgres@localhost:5432",
+                                        "postgres://postgres:password@localhost:5432",
                                         TlsMode::None).unwrap(),
             next_notification_time: std::u64::MAX,
         }
@@ -85,20 +86,13 @@ impl FriendRecommendations {
 
     fn initialize(&mut self) {
         // compute common friends
-        let query = format!("SELECT B.person_id1, COUNT(*) as count
-                             FROM person_knows_person AS A,
-                                (SELECT *
-                                 FROM person_knows_person
-                                 WHERE person_id2 != {} AND person_id1 != {}) B
-                             WHERE A.person_id1 = {} AND A.person_id2 = B.person_id2
-                             GROUP BY (A.person_id1, B.person_id1)",
-                            self.person_id, self.person_id, self.person_id);
+        let query = query::common_friends(self.person_id);
 
         for row in &self.conn.query(&query, &[]).unwrap() {
-            let person_id = row.get::<_,i32>(0) as u32;
-            let count     = NotNan::<f32>::new(row.get::<_,i64>(1) as f32).unwrap();
+            let person_id = row.get::<_,i64>(0) as u64;
+            let count     = row.get::<_,i64>(1) as u64;
 
-            self.all_scores.insert(person_id, count.into_inner());
+            self.all_scores.insert(person_id, count);
 
             if self.top_scores.len() < RECOMMENDATION_SIZE as usize ||
                 self.top_scores.peek().unwrap().val < count {
@@ -111,12 +105,10 @@ impl FriendRecommendations {
                 self.top_scores.pop();
             }
         }
-
-
     }
 
-    fn get_recommendations(&mut self) -> Vec<u32> {
-        let mut res = Vec::<u32>::new();
+    fn get_recommendations(&mut self) -> Vec<u64> {
+        let mut res = Vec::<u64>::new();
         for s in self.top_scores.iter() {
             res.push(s.person_id);
         }
@@ -127,7 +119,7 @@ impl FriendRecommendations {
         let spaces = " ".repeat(10);
         println!("{}--- recommendations", spaces);
         for r in self.top_scores.iter() {
-            println!("{}person id: {} \t score: {}", spaces, r.person_id, r.val.into_inner());
+            println!("{}person id: {} \t score: {}", spaces, r.person_id, r.val);
         }
         println!("{}--- ", spaces);
     }
@@ -153,15 +145,15 @@ impl FriendRecommendations {
 trait RecommendFriend<G: Scope> {
     fn recommend_friends(
         &self,
-        person_id: u32,
-    ) -> Stream<G, Vec<u32>>;
+        person_id: u64,
+    ) -> Stream<G, Vec<u64>>;
 }
 
 impl<G: Scope<Timestamp = u64>> RecommendFriend<G> for Stream<G, Event> {
     fn recommend_friends(
         &self,
-        person_id: u32
-    ) -> Stream<G, Vec<u32>> {
+        person_id: u64
+    ) -> Stream<G, Vec<u64>> {
         let mut state: FriendRecommendations = FriendRecommendations::new(person_id);
         state.initialize();
 
@@ -228,7 +220,7 @@ fn main() {
             let _events_stream =
                 kafka::consumer::string_stream(scope, "events", index, total_workers)
                 .map(|record: String| event::deserialize(record))
-                .recommend_friends(471);
+                .recommend_friends(471_u64);
         });
     })
     .expect("Timely computation failed somehow");

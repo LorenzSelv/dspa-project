@@ -8,3 +8,4 @@ extern crate config;
 
 pub mod event;
 pub mod kafka;
+pub mod db;
