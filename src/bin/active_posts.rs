@@ -4,11 +4,11 @@
  * - more TODOs...
  */
 
+extern crate config;
+extern crate lazy_static;
 extern crate rdkafka;
 extern crate serde;
 extern crate serde_derive;
-extern crate lazy_static;
-extern crate config;
 
 use colored::*;
 

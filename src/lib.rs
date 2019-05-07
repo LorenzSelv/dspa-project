@@ -6,6 +6,6 @@ extern crate serde_derive;
 extern crate lazy_static;
 extern crate config;
 
+pub mod db;
 pub mod event;
 pub mod kafka;
-pub mod db;
