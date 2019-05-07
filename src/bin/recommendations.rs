@@ -76,7 +76,7 @@ impl FriendRecommendations {
             all_scores: HashMap::<u64, u64>::new(),
             top_scores: BinaryHeap::<Score>::new(),
             ooo_events: Vec::<Event>::new(), // process after notification
-            conn: Connection::connect(POSTGRES_URI, TlsMode::None).unwrap(),
+            conn: Connection::connect(POSTGRES_URI, TlsMode::None).unwrap(), // TODO move out
             next_notification_time: std::u64::MAX, // TODO move outside
             friends: HashSet::<u64>::new(),
         }

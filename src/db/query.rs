@@ -1,9 +1,3 @@
-const studyAt: &'static str = "SELECT t2.person_id, COUNT(*) AS NumCommonOrg
-    FROM person_studyAt_organisation AS t1, person_studyAt_organisation AS t2
-    WHERE t2.organisation_id = t1.organisation_id
-    AND t1.person_id = {}
-    AND t2.person_id <> {}
-    GROUP BY t2.person_id";
 
 pub fn friends(person_id: u64) -> String {
     format!(
