@@ -80,7 +80,7 @@ where
             let time = *capability.time();
             if timestamp - *MAX_DELAY_SEC > time {
                 capability.downgrade(&(timestamp - *MAX_DELAY_SEC));
-                println!("downgraded to {}", timestamp - *MAX_DELAY_SEC);
+                // println!("downgraded to {}", timestamp - *MAX_DELAY_SEC);
             }
 
             // Indicate that we are not yet done.

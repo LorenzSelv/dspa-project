@@ -71,10 +71,10 @@ fn main() {
                         .key("key"),
                     -1
                 );
-                println!("sent event at {} to partition {} -- {:?}",
-                         event.creation_date,
-                         p,
-                         event);
+//                println!("sent event at {} to partition {} -- {:?}",
+//                         event.creation_date,
+//                         p,
+//                         event);
             }
         } else {
             prod.send(

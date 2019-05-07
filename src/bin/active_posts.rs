@@ -223,7 +223,7 @@ impl<G: Scope<Timestamp = u64>> PostTrees<G> for Stream<G, Event> {
                 data.swap(&mut buf);
 
                 for event in buf.drain(..) {
-                    println!("{} {}", "+".bold().yellow(), event.to_string().bold().yellow());
+                    // println!("{} {}", "+".bold().yellow(), event.to_string().bold().yellow());
 
                     let (opt_target_id, opt_root_post_id) = state.update_post_tree(&event);
 
@@ -245,7 +245,7 @@ impl<G: Scope<Timestamp = u64>> PostTrees<G> for Stream<G, Event> {
                         }
                     };
 
-                    state.dump();
+                    // state.dump();
                 }
 
                 let mut session = output.session(&time);
@@ -253,8 +253,7 @@ impl<G: Scope<Timestamp = u64>> PostTrees<G> for Stream<G, Event> {
                     session.give(stat_update); 
                 }
 
-                // TODO make sure state is cleaned properly
-                // TODO make do only every once in a while .. ?
+                // TODO do only every once in a while .. ?
                 state.clean_ooo_events(*time.time());
             });
         })
@@ -430,11 +429,11 @@ impl<G: Scope<Timestamp = u64>> ActivePosts<G> for Stream<G, StatUpdate> {
                 let mut min_t = std::u64::MAX;
 
                 for stat_update in buf.drain(..) {
-                    println!("{} {}", "+".bold().yellow(), stat_update.to_string().bold().yellow());
+                    // println!("{} {}", "+".bold().yellow(), stat_update.to_string().bold().yellow());
 
                     state.update_stats(&stat_update);
 
-                    state.dump();
+                    // state.dump();
 
                     min_t = min(min_t, stat_update.timestamp);
                 }
@@ -457,17 +456,17 @@ impl<G: Scope<Timestamp = u64>> ActivePosts<G> for Stream<G, StatUpdate> {
 
                 let timestamp = *time.time();
                 let date = Utc.timestamp(timestamp as i64, 0);
-                println!("~~~~~~~~~~~~~~~~~~~~~~~~");
-                println!("{} at timestamp {}", "notified".bold().green(), date);
+                // println!("~~~~~~~~~~~~~~~~~~~~~~~~");
+                // println!("{} at timestamp {}", "notified".bold().green(), date);
 
                 let stats = state.active_posts_stats(timestamp, active_window_seconds);
-                println!("  {}", "Active post stats".bold().blue());
-                dump_stats(&stats, 4);
+                // println!("  {}", "Active post stats".bold().blue());
+                // dump_stats(&stats, 4);
 
                 let mut session = output.session(&time);
                 session.give(stats);
 
-                println!("~~~~~~~~~~~~~~~~~~~~~~~~");
+                // println!("~~~~~~~~~~~~~~~~~~~~~~~~");
             });
 
             // set next notification in 30 minutes
@@ -500,13 +499,12 @@ fn main() {
 
             let stat_updates = single
                 .concat(&broad)
-                // TODO make sure that each worker sees what it's supposed to see
-                .inspect(move |event| {
-                    println!(
-                        "{}",
-                        format!("[W{}] seen event {:?}", index, event.id()).bright_cyan().bold()
-                    )
-                })
+                // .inspect(move |event| {
+                //     println!(
+                //         "{}",
+                //         format!("[W{}] seen event {:?}", index, event.id()).bright_cyan().bold()
+                //     )
+                // })
                 .post_trees(index as usize);
 
             stat_updates
