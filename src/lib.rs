@@ -9,3 +9,4 @@ extern crate config;
 pub mod db;
 pub mod event;
 pub mod kafka;
+pub mod operators;

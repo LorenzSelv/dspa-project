@@ -1,4 +1,3 @@
-
 pub fn friends(person_id: u64) -> String {
     format!(
         "SELECT person_id2
