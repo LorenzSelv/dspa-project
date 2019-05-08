@@ -21,6 +21,7 @@ const POSTGRES_URI: &'static str = "postgres://postgres:password@localhost:5432"
 
 #[derive(Clone, Debug)]
 pub enum RecommendationUpdate {
+    // TODO add more update types, the one below is just an example
     Like { timestamp: u64, from_person_id: u64, to_person_id: u64 },
 }
 

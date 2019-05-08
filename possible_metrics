@@ -1,0 +1,17 @@
+STATIC:
+person -- (interested) --> tag
+person -- (knows) --> person
+person -- (studyAt) --> organisation
+person -- (workAt)  --> organisation
+forum  -- (hasMember)  --> person
+
+STREAMS:
+NOTREE | * person A follows tag T and person B posts something with tag T => suggest B to A
+NOTREE | * person A likes    post P created by person B => suggest B to A
+NOTREE | * person A comments post P created by person B => suggest B to A
+* person A reply to comment C created by person B => suggest B to A
+* person A and person B comments / likes / reply to the same post P => suggest B to A and A to B
+
+Notes:
+- do not suggest who is friend already
+- do not suggest who is not active (no activity in the last N days?)
