@@ -21,8 +21,8 @@ lazy_static! {
 pub fn string_stream<'a, G>(
     scope: &mut G,
     topic: &'static str,
-    index: i32,
-    peers: i32,
+    index: usize,
+    peers: usize,
 ) -> Stream<G, String>
 where
     G: Scope<Timestamp = u64>,
@@ -46,10 +46,10 @@ where
     consumer.subscribe(&[&topic.to_string()]).expect("Failed to subscribe to topic");
 
     let mut partition_list = TopicPartitionList::new();
-    let mut partition: i32 = index;
+    let mut partition = index as i32;
     while partition < *NUM_PARTITIONS {
         partition_list.add_partition(topic, partition);
-        partition += peers;
+        partition += peers as i32;
     }
     consumer.assign(&partition_list).expect("error in assigning partition list");
 
