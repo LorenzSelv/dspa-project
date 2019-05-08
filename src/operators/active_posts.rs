@@ -70,29 +70,21 @@ impl Timestamp for StatUpdate {
     fn timestamp(&self) -> u64 { self.timestamp }
 }
 
+#[derive(Clone)]
 struct ActivePostsState {
-    // cur_* variables refer to the current window
-    // next_* variables refer to the next window
     worker_id: usize,
     // post ID --> timestamp of last event associated with it
-    cur_last_timestamp:  HashMap<u64, u64>,
-    next_last_timestamp: HashMap<u64, u64>,
+    last_timestamp:  HashMap<u64, u64>,
     // post ID --> stats
-    cur_stats:  HashMap<u64, Stats>,
-    next_stats: HashMap<u64, Stats>,
-
-    next_notification_time: u64,
+    stats:  HashMap<u64, Stats>,
 }
 
 impl ActivePostsState {
     fn new(worker_id: usize) -> ActivePostsState {
         ActivePostsState {
             worker_id:              worker_id,
-            cur_last_timestamp:     HashMap::<u64, u64>::new(),
-            next_last_timestamp:    HashMap::<u64, u64>::new(),
-            cur_stats:              HashMap::<u64, Stats>::new(),
-            next_stats:             HashMap::<u64, Stats>::new(),
-            next_notification_time: std::u64::MAX,
+            last_timestamp:     HashMap::<u64, u64>::new(),
+            stats:              HashMap::<u64, Stats>::new(),
         }
     }
 
@@ -106,56 +98,37 @@ impl ActivePostsState {
             )
         );
         println!("{}", "  Current stats".bold().blue());
-        println!("    cur_last_timestamp -- {:?}", self.cur_last_timestamp);
-        dump_stats(&self.cur_stats, 4);
-        println!("{}", "  Next stats".bold().blue());
-        println!("    next_last_timestamp -- {:?}", self.next_last_timestamp);
-        dump_stats(&self.next_stats, 4);
+        println!("    last_timestamp -- {:?}", self.last_timestamp);
+        dump_stats(&self.stats, 4);
+        // println!("{}", "  Next stats".bold().blue());
+        // println!("    next_last_timestamp -- {:?}", self.next_last_timestamp);
+        // dump_stats(&self.next_stats, 4);
     }
 
-    fn __update_stats(
-        stat_update: &StatUpdate,
-        last_timestamp: &mut HashMap<u64, u64>,
-        stats: &mut HashMap<u64, Stats>,
-    ) {
+    fn update_stats(&mut self, stat_update: &StatUpdate) {
         let post_id = stat_update.post_id;
         let timestamp = stat_update.timestamp;
 
         // update last_timestamp
-        match last_timestamp.get(&post_id) {
-            Some(&prev) => last_timestamp.insert(post_id, max(prev, timestamp)),
-            None => last_timestamp.insert(post_id, timestamp),
+        match self.last_timestamp.get(&post_id) {
+            Some(&prev) => self.last_timestamp.insert(post_id, max(prev, timestamp)),
+            None => self.last_timestamp.insert(post_id, timestamp),
         };
 
         match stat_update.update_type {
-            StatUpdateType::Comment => stats.get_mut(&post_id).unwrap().new_comment(),
-            StatUpdateType::Reply => stats.get_mut(&post_id).unwrap().new_reply(),
+            StatUpdateType::Comment => self.stats.get_mut(&post_id).unwrap().new_comment(),
+            StatUpdateType::Reply => self.stats.get_mut(&post_id).unwrap().new_reply(),
             _ => {} // nothing to do for posts and likes
         }
 
         // update unique people set
-        stats.entry(post_id).or_insert(Stats::new()).new_person(stat_update.person_id);
-    }
-
-    fn update_stats(&mut self, stat_update: &StatUpdate) {
-        ActivePostsState::__update_stats(
-            &stat_update,
-            &mut self.next_last_timestamp,
-            &mut self.next_stats,
-        );
-        if stat_update.timestamp <= self.next_notification_time {
-            ActivePostsState::__update_stats(
-                &stat_update,
-                &mut self.cur_last_timestamp,
-                &mut self.cur_stats,
-            );
-        }
+        self.stats.entry(post_id).or_insert(Stats::new()).new_person(stat_update.person_id);
     }
 
     fn active_posts_stats(&mut self, cur_timestamp: u64) -> HashMap<u64, Stats> {
         // TODO refactor
         let active_posts = self
-            .cur_last_timestamp
+            .last_timestamp
             .iter()
             .filter_map(|(&post_id, &last_t)| {
                 if last_t >= cur_timestamp - ACTIVE_WINDOW_SECONDS {
@@ -167,14 +140,11 @@ impl ActivePostsState {
             .collect::<HashSet<_>>();
 
         let active_posts_stats = self
-            .cur_stats
+            .stats
             .clone()
             .into_iter()
             .filter(|&(id, _)| active_posts.contains(&id))
             .collect::<HashMap<_, _>>();
-
-        self.cur_last_timestamp = self.next_last_timestamp.clone();
-        self.cur_stats = self.next_stats.clone();
 
         active_posts_stats
     }

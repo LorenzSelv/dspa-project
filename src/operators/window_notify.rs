@@ -11,31 +11,33 @@ pub trait Timestamp {
     fn timestamp(&self) -> u64;
 }
 
-pub trait WindowNotify<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: 'static, O: Data> {
+pub trait WindowNotify<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: Clone + 'static, O: Data> {
     fn window_notify(
         &self,
         window_size: u64,
         op_name: &'static str,
-        mut state: S,
-        on_new_input: impl Fn(&mut S, D) + 'static,
+        state: S,
+        on_new_input: impl Fn(&mut S, &D) + 'static,
         on_notify: impl Fn(&mut S, u64) -> O + 'static,
     ) -> Stream<G, O>;
 }
 
-impl<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: 'static, O: Data> WindowNotify<G, D, S, O>
+impl<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: Clone + 'static, O: Data> WindowNotify<G, D, S, O>
     for Stream<G, D>
 {
     fn window_notify(
         &self,
         window_size: u64,
         op_name: &'static str,
-        mut state: S,
-        on_new_input: impl Fn(&mut S, D) + 'static,
+        state: S,
+        on_new_input: impl Fn(&mut S, &D) + 'static,
         on_notify: impl Fn(&mut S, u64) -> O + 'static,
     ) -> Stream<G, O> {
         let mut first_notification = true;
+        let mut next_notification_time = std::u64::MAX;
 
-        let mut next_notification_time = 0;
+        let mut cur_state = state;
+        let mut next_state = cur_state.clone();
 
         self.unary_notify(Pipeline, op_name, None, move |input, output, notificator| {
             input.for_each(|time, data| {
@@ -46,7 +48,14 @@ impl<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: 'static, O: Data> Window
 
                 for el in buf.drain(..) {
                     min_t = min(min_t, el.timestamp());
-                    on_new_input(&mut state, el);
+
+                    // use caller-provided function to update the state
+                    on_new_input(&mut next_state, &el);
+                    // the event might belong to the next window
+                    // update the current state only if it does not
+                    if el.timestamp() <= next_notification_time {
+                        on_new_input(&mut cur_state, &el);
+                    }
                 }
 
                 // Set up the first notification.
@@ -66,10 +75,14 @@ impl<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: 'static, O: Data> Window
                 let mut borrow = ref1.borrow_mut();
                 *borrow = Some(time.clone());
 
-                let out = on_notify(&mut state, *time.time());
+                // use caller-provided function to generate the output
+                let out = on_notify(&mut cur_state, *time.time());
 
                 let mut session = output.session(&time);
                 session.give(out);
+
+                // we are switching to the next window, update state
+                cur_state = next_state.clone();
             });
 
             let borrow = ref2.borrow();

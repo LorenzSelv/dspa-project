@@ -41,10 +41,12 @@ pub trait FriendRecommendations<G: Scope> {
 
 impl<G: Scope<Timestamp = u64>> FriendRecommendations<G> for Stream<G, RecommendationUpdate> {
     fn friend_recommendations(&self, person_id: u64) -> Stream<G, Vec<u64>> {
+        let conn = Connection::connect(POSTGRES_URI, TlsMode::None).unwrap();
+
         self.window_notify(
             NOTIFICATION_FREQ,
             "FriendRecommendations",
-            FriendRecommendationsState::new(person_id),
+            FriendRecommendationsState::new(person_id, &conn),
             |state, rec_update| state.update(rec_update),
             |state, _timestamp| state.get_recommendations(),
         )
@@ -68,40 +70,37 @@ impl PartialOrd for Score {
     fn partial_cmp(&self, other: &Score) -> Option<Ordering> { Some(self.cmp(other)) }
 }
 
+#[derive(Clone)]
 struct FriendRecommendationsState {
     person_id: u64,
     all_scores: HashMap<u64, u64>, // person_id, score_val
     top_scores: BinaryHeap<Score>, // size = RECOMMENDATION_SIZE
-    conn: Connection,
-    pub next_notification_time: u64,
     friends: HashSet<u64>,
 }
 
 impl FriendRecommendationsState {
-    fn new(person_id: u64) -> FriendRecommendationsState {
+    fn new(person_id: u64, conn: &Connection) -> FriendRecommendationsState {
         let mut state = FriendRecommendationsState {
             person_id: person_id,
             all_scores: HashMap::<u64, u64>::new(),
             top_scores: BinaryHeap::<Score>::new(),
-            conn: Connection::connect(POSTGRES_URI, TlsMode::None).unwrap(), // TODO move out
-            next_notification_time: std::u64::MAX,                           // TODO move outside
             friends: HashSet::<u64>::new(),
         };
 
-        state.init_static_scores();
+        state.init_static_scores(conn);
         state
     }
 
-    fn init_static_scores(&mut self) {
+    fn init_static_scores(&mut self, conn: &Connection) {
         // compute common friends
         let mut query = query::friends(self.person_id);
-        for row in &self.conn.query(&query, &[]).unwrap() {
+        for row in &conn.query(&query, &[]).unwrap() {
             let person_id = row.get::<_, i64>(0) as u64;
             self.friends.insert(person_id);
         }
 
         query = query::common_friends(self.person_id);
-        for row in &self.conn.query(&query, &[]).unwrap() {
+        for row in &conn.query(&query, &[]).unwrap() {
             let person_id = row.get::<_, i64>(0) as u64;
             let score = row.get::<_, i64>(1) as u64;
 
@@ -113,7 +112,7 @@ impl FriendRecommendationsState {
         }
 
         query = query::work_at(self.person_id);
-        for row in &self.conn.query(&query, &[]).unwrap() {
+        for row in &conn.query(&query, &[]).unwrap() {
             let person_id = row.get::<_, i64>(0) as u64;
             let score = row.get::<_, i64>(1) as u64;
 
@@ -125,7 +124,7 @@ impl FriendRecommendationsState {
         }
 
         query = query::study_at(self.person_id);
-        for row in &self.conn.query(&query, &[]).unwrap() {
+        for row in &conn.query(&query, &[]).unwrap() {
             let person_id = row.get::<_, i64>(0) as u64;
             let score = row.get::<_, i64>(1) as u64;
 
@@ -163,11 +162,7 @@ impl FriendRecommendationsState {
         println!("{}--- ", spaces);
     }
 
-    fn update(&mut self, rec_update: RecommendationUpdate) {
-        if rec_update.timestamp() > self.next_notification_time {
-            // TODO keep a cur_score, next_score
-        }
-
+    fn update(&mut self, rec_update: &RecommendationUpdate) {
         // otherwise process rec_update straigt away.
         // do we need an "else"?
         // TODO: MAIN LOGIC!
