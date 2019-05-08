@@ -78,6 +78,7 @@ fn main() {
                 .inspect(move |stats| inspect_stats(widx1, stats));
 
             let widx2 = widx.clone();
+            // TODO pass a list of people instead
             rec_updates.friend_recommendations(38_u64).inspect(move |rec| inspect_rec(widx2, rec));
         });
     })

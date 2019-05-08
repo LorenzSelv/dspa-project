@@ -87,6 +87,7 @@ impl<G: Scope<Timestamp = u64>> PostTrees<G> for Stream<G, Event> {
             }
         });
 
+        // return the two output streams
         (stat_stream, rec_stream)
     }
 }
@@ -96,9 +97,11 @@ struct PostTreesState {
     // event ID --> post ID it refers to (root of the tree)
     root_of: HashMap<ID, ID>,
     // out-of-order events: id of missing event --> event that depends on it
-    ooo_events:           HashMap<ID, Vec<Event>>,
+    ooo_events: HashMap<ID, Vec<Event>>,
+    // updates to be sent on the stat output stream
     pending_stat_updates: Vec<StatUpdate>,
-    pending_rec_updates:  Vec<RecommendationUpdate>,
+    // updates to be sent on the recommendation output stream
+    pending_rec_updates: Vec<RecommendationUpdate>,
 }
 
 impl PostTreesState {
@@ -176,11 +179,14 @@ impl PostTreesState {
             .collect::<HashMap<_, _>>();
     }
 
+    /// generate all output updates for the current event
     fn append_output_updates(&mut self, event: &Event, root_post_id: u64) {
         self.append_stat_update(&event, root_post_id);
         self.append_rec_update(&event, root_post_id);
     }
 
+    /// given an event (and the current state of the post trees),
+    /// generate a new stat update and append it to the pending list
     fn append_stat_update(&mut self, event: &Event, root_post_id: u64) {
         let update_type = match event {
             Event::Post(_) => StatUpdateType::Post,
@@ -204,8 +210,10 @@ impl PostTreesState {
         self.pending_stat_updates.push(update);
     }
 
+    /// given an event (and the current state of the post trees),
+    /// generate a new recommendation update and append it to the pending list
     fn append_rec_update(&mut self, event: &Event, _root_post_id: u64) {
-        // TODO given an event, generate a new recommendation update
+        // TODO implement
 
         let update = RecommendationUpdate::Like {
             timestamp:      event.timestamp(),
