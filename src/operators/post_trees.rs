@@ -123,8 +123,7 @@ impl PostTreesState {
             }
             Event::Like(like) => {
                 // likes are not stored in the tree
-                // TODO post might not have been received yet
-                (Some(like.post_id), Some(like.post_id)) // can only like a post
+                (Some(like.post_id), self.root_of.get(&like.post_id).copied()) // can only like a post
             }
             Event::Comment(comment) => {
                 let reply_to_id = comment.reply_to_post_id.or(comment.reply_to_comment_id).unwrap();
