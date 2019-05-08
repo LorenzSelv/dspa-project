@@ -13,9 +13,10 @@ use timely::dataflow::{Scope, Stream};
 use postgres::{Connection, TlsMode};
 
 use crate::db::query;
+use crate::operators::window_notify::{Timestamp, WindowNotify};
 
 const ACTIVE_WINDOW_SECONDS: u64 = 4 * 3600;
-const UPDATE_WINDOW_SECONDS: u64 = 1 * 3600;
+const NOTIFICATION_FREQ: u64 = 1 * 3600;
 const RECOMMENDATION_SIZE: u64 = 5;
 const POSTGRES_URI: &'static str = "postgres://postgres:password@localhost:5432";
 
@@ -25,7 +26,7 @@ pub enum RecommendationUpdate {
     Like { timestamp: u64, from_person_id: u64, to_person_id: u64 },
 }
 
-impl RecommendationUpdate {
+impl Timestamp for RecommendationUpdate {
     fn timestamp(&self) -> u64 {
         match self {
             RecommendationUpdate::Like { timestamp: t, from_person_id: _, to_person_id: _ } => *t,
@@ -40,59 +41,12 @@ pub trait FriendRecommendations<G: Scope> {
 
 impl<G: Scope<Timestamp = u64>> FriendRecommendations<G> for Stream<G, RecommendationUpdate> {
     fn friend_recommendations(&self, person_id: u64) -> Stream<G, Vec<u64>> {
-        let mut state = FriendRecommendationsState::new(person_id);
-        state.initialize();
-
-        let mut first_notification = true;
-
-        self.unary_notify(
-            Pipeline,
+        self.window_notify(
+            NOTIFICATION_FREQ,
             "FriendRecommendations",
-            None,
-            move |input, output, notificator| {
-                input.for_each(|time, data| {
-                    let mut buf = Vec::<RecommendationUpdate>::new();
-                    data.swap(&mut buf);
-
-                    let mut min_t = std::u64::MAX;
-
-                    for rec_update in buf.drain(..) {
-                        // println!("{} {:?}", "+".bold().yellow(), rec_update);
-                        min_t = min(min_t, rec_update.timestamp());
-                        state.update(rec_update);
-                    }
-
-                    // Set up the first notification.
-                    if first_notification && min_t != std::u64::MAX {
-                        state.next_notification_time = min_t + UPDATE_WINDOW_SECONDS;
-                        // println!("set first notification for: {}", state.next_notification_time);
-                        notificator.notify_at(time.delayed(&state.next_notification_time));
-                        first_notification = false;
-                    }
-                });
-
-                // Some setup in order to schedule new notifications inside a notification.
-                let notified_time = None;
-                let ref1 = Rc::new(RefCell::new(notified_time));
-                let ref2 = Rc::clone(&ref1);
-
-                notificator.for_each(|time, _, _| {
-                    let mut borrow = ref1.borrow_mut();
-                    *borrow = Some(time.clone());
-
-                    let res = state.get_recommendations();
-                    // state.dump_recommendations();
-
-                    let mut session = output.session(&time);
-                    session.give(res);
-                });
-
-                let borrow = ref2.borrow();
-                if let Some(cap) = &*borrow {
-                    state.next_notification_time = *cap.time() + UPDATE_WINDOW_SECONDS;
-                    notificator.notify_at(cap.delayed(&state.next_notification_time));
-                }
-            },
+            FriendRecommendationsState::new(person_id),
+            |state, rec_update| state.update(rec_update),
+            |state, _timestamp| state.get_recommendations(),
         )
     }
 }
@@ -125,17 +79,20 @@ struct FriendRecommendationsState {
 
 impl FriendRecommendationsState {
     fn new(person_id: u64) -> FriendRecommendationsState {
-        FriendRecommendationsState {
+        let mut state = FriendRecommendationsState {
             person_id: person_id,
             all_scores: HashMap::<u64, u64>::new(),
             top_scores: BinaryHeap::<Score>::new(),
             conn: Connection::connect(POSTGRES_URI, TlsMode::None).unwrap(), // TODO move out
             next_notification_time: std::u64::MAX,                           // TODO move outside
             friends: HashSet::<u64>::new(),
-        }
+        };
+
+        state.init_static_scores();
+        state
     }
 
-    fn initialize(&mut self) {
+    fn init_static_scores(&mut self) {
         // compute common friends
         let mut query = query::friends(self.person_id);
         for row in &self.conn.query(&query, &[]).unwrap() {

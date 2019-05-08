@@ -17,8 +17,8 @@ pub trait ActivePosts<G: Scope> {
 impl<G: Scope<Timestamp = u64>> ActivePosts<G> for Stream<G, StatUpdate> {
     fn active_posts(&self, worker_id: usize) -> Stream<G, HashMap<u64, Stats>> {
         self.window_notify(
-            "ActivePosts",
             NOTIFICATION_FREQ,
+            "ActivePosts",
             ActivePostsState::new(worker_id),
             |state, stat_update| state.update_stats(&stat_update),
             |state, timestamp| state.active_posts_stats(timestamp),

@@ -14,8 +14,8 @@ pub trait Timestamp {
 pub trait WindowNotify<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: 'static, O: Data> {
     fn window_notify(
         &self,
-        op_name: &'static str,
         window_size: u64,
+        op_name: &'static str,
         mut state: S,
         on_new_input: impl Fn(&mut S, D) + 'static,
         on_notify: impl Fn(&mut S, u64) -> O + 'static,
@@ -27,8 +27,8 @@ impl<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: 'static, O: Data> Window
 {
     fn window_notify(
         &self,
-        op_name: &'static str,
         window_size: u64,
+        op_name: &'static str,
         mut state: S,
         on_new_input: impl Fn(&mut S, D) + 'static,
         on_notify: impl Fn(&mut S, u64) -> O + 'static,
