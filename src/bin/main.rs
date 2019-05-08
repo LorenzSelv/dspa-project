@@ -30,8 +30,6 @@ use dspa::operators::friend_recommendations::dump_recommendations;
 use dspa::operators::friend_recommendations::FriendRecommendations;
 use dspa::operators::post_trees::PostTrees;
 
-const ACTIVE_WINDOW_SECONDS: u64 = 12 * 3600;
-
 fn inspect_stats(widx: usize, stats: &HashMap<u64, Stats>) {
     println!("{} {}", format!("[W{}]", widx).bold().red(), "stats inspect".bold().red());
     dump_stats(stats, 4);
@@ -73,9 +71,7 @@ fn main() {
             let (stat_updates, rec_updates) = event_stream.post_trees(widx);
 
             let widx1 = widx.clone();
-            stat_updates
-                .active_posts(ACTIVE_WINDOW_SECONDS, widx)
-                .inspect(move |stats| inspect_stats(widx1, stats));
+            stat_updates.active_posts(widx).inspect(move |stats| inspect_stats(widx1, stats));
 
             let widx2 = widx.clone();
             // TODO pass a list of people instead
