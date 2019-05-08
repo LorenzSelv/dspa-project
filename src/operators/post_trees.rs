@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use timely::dataflow::channels::pact::Pipeline;
-use timely::dataflow::operators::Operator;
+use timely::dataflow::operators::generic::builder_rc::OperatorBuilder;
 use timely::dataflow::{Scope, Stream};
 
 use colored::*;
@@ -10,36 +10,46 @@ use crate::event::{Event, ID};
 
 use crate::operators::active_posts::StatUpdate;
 use crate::operators::active_posts::StatUpdateType;
+use crate::operators::friend_recommendations::RecommendationUpdate;
 
 pub trait PostTrees<G: Scope> {
-    fn post_trees(&self, worker_id: usize) -> Stream<G, StatUpdate>; // TODO
+    fn post_trees(
+        &self,
+        worker_id: usize,
+    ) -> (Stream<G, StatUpdate>, Stream<G, RecommendationUpdate>);
 }
 
 impl<G: Scope<Timestamp = u64>> PostTrees<G> for Stream<G, Event> {
     fn post_trees(
         &self,
         worker_id: usize,
-        // ) -> Stream<G, (StatUpdate, RecomUpdate)> {
-    ) -> Stream<G, StatUpdate> {
-        // TODO
-
+    ) -> (Stream<G, StatUpdate>, Stream<G, RecommendationUpdate>) {
         let mut state: PostTreesState = PostTreesState::new(worker_id);
 
-        self.unary(Pipeline, "PostTrees", move |_, _| {
-            move |input, output| {
+        let mut builder = OperatorBuilder::new("PostTrees".to_owned(), self.scope());
+
+        let mut input = builder.new_input(self, Pipeline);
+
+        // declare two output streams, one for each downstream operator
+        let (mut stat_output, stat_stream) = builder.new_output();
+        let (mut rec_output, rec_stream) = builder.new_output();
+
+        builder.build(move |_| {
+            let mut buf = Vec::new();
+            move |_frontiers| {
                 input.for_each(|time, data| {
-                    let mut buf = Vec::<Event>::new();
                     data.swap(&mut buf);
 
+                    // update the post trees
                     for event in buf.drain(..) {
                         // println!("{} {}", "+".bold().yellow(), event.to_string().bold().yellow());
-
                         let (opt_target_id, opt_root_post_id) = state.update_post_tree(&event);
 
+                        // check if the root post_id has been already received
                         match opt_root_post_id {
                             Some(root_post_id) => {
                                 if let ID::Post(pid) = root_post_id {
-                                    state.append_stat_update(&event, pid);
+                                    state.append_output_updates(&event, pid);
                                 } else {
                                     panic!("expect ID::Post, got ID::Comment");
                                 }
@@ -57,16 +67,27 @@ impl<G: Scope<Timestamp = u64>> PostTrees<G> for Stream<G, Event> {
                         // state.dump();
                     }
 
-                    let mut session = output.session(&time);
+                    let mut stat_handle = stat_output.activate();
+                    let mut rec_handle = rec_output.activate();
+
+                    let mut stat_session = stat_handle.session(&time);
+                    let mut rec_session = rec_handle.session(&time);
+
                     for stat_update in state.pending_stat_updates.drain(..) {
-                        session.give(stat_update);
+                        stat_session.give(stat_update);
+                    }
+
+                    for rec_update in state.pending_rec_updates.drain(..) {
+                        rec_session.give(rec_update);
                     }
 
                     // TODO do only every once in a while .. ?
                     state.clean_ooo_events(*time.time());
                 });
             }
-        })
+        });
+
+        (stat_stream, rec_stream)
     }
 }
 
@@ -77,6 +98,7 @@ struct PostTreesState {
     // out-of-order events: id of missing event --> event that depends on it
     ooo_events:           HashMap<ID, Vec<Event>>,
     pending_stat_updates: Vec<StatUpdate>,
+    pending_rec_updates:  Vec<RecommendationUpdate>,
 }
 
 impl PostTreesState {
@@ -85,7 +107,8 @@ impl PostTreesState {
             worker_id:            worker_id,
             root_of:              HashMap::<ID, ID>::new(),
             ooo_events:           HashMap::<ID, Vec<Event>>::new(),
-            pending_stat_updates: Vec::<StatUpdate>::new(),
+            pending_stat_updates: Vec::new(),
+            pending_rec_updates:  Vec::new(),
         }
     }
 
@@ -126,7 +149,7 @@ impl PostTreesState {
                 let root_post_id =
                     opt_root_post_id.expect("[process_ooo_events] root_post_id is None");
 
-                self.append_stat_update(&event, root_post_id.u64());
+                self.append_output_updates(&event, root_post_id.u64());
 
                 if let Some(new_id) = event.id() {
                     new_ids.push(new_id)
@@ -153,6 +176,11 @@ impl PostTreesState {
             .collect::<HashMap<_, _>>();
     }
 
+    fn append_output_updates(&mut self, event: &Event, root_post_id: u64) {
+        self.append_stat_update(&event, root_post_id);
+        self.append_rec_update(&event, root_post_id);
+    }
+
     fn append_stat_update(&mut self, event: &Event, root_post_id: u64) {
         let update_type = match event {
             Event::Post(_) => StatUpdateType::Post,
@@ -174,6 +202,17 @@ impl PostTreesState {
         };
 
         self.pending_stat_updates.push(update);
+    }
+
+    fn append_rec_update(&mut self, event: &Event, _root_post_id: u64) {
+        // TODO given an event, generate a new recommendation update
+
+        let update = RecommendationUpdate::Like {
+            timestamp:      event.timestamp(),
+            from_person_id: 2,
+            to_person_id:   3,
+        };
+        self.pending_rec_updates.push(update)
     }
 
     fn dump(&self) {
