@@ -74,17 +74,17 @@ impl Timestamp for StatUpdate {
 struct ActivePostsState {
     worker_id: usize,
     // post ID --> timestamp of last event associated with it
-    last_timestamp:  HashMap<u64, u64>,
+    last_timestamp: HashMap<u64, u64>,
     // post ID --> stats
-    stats:  HashMap<u64, Stats>,
+    stats: HashMap<u64, Stats>,
 }
 
 impl ActivePostsState {
     fn new(worker_id: usize) -> ActivePostsState {
         ActivePostsState {
-            worker_id:              worker_id,
-            last_timestamp:     HashMap::<u64, u64>::new(),
-            stats:              HashMap::<u64, Stats>::new(),
+            worker_id:      worker_id,
+            last_timestamp: HashMap::<u64, u64>::new(),
+            stats:          HashMap::<u64, Stats>::new(),
         }
     }
 

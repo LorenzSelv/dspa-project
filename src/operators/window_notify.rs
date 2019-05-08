@@ -11,7 +11,8 @@ pub trait Timestamp {
     fn timestamp(&self) -> u64;
 }
 
-pub trait WindowNotify<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: Clone + 'static, O: Data> {
+pub trait WindowNotify<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: Clone + 'static, O: Data>
+{
     fn window_notify(
         &self,
         window_size: u64,
@@ -22,8 +23,8 @@ pub trait WindowNotify<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: Clone 
     ) -> Stream<G, O>;
 }
 
-impl<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: Clone + 'static, O: Data> WindowNotify<G, D, S, O>
-    for Stream<G, D>
+impl<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: Clone + 'static, O: Data>
+    WindowNotify<G, D, S, O> for Stream<G, D>
 {
     fn window_notify(
         &self,

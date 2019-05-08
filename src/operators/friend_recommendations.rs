@@ -72,19 +72,19 @@ impl PartialOrd for Score {
 
 #[derive(Clone)]
 struct FriendRecommendationsState {
-    person_id: u64,
+    person_id:  u64,
     all_scores: HashMap<u64, u64>, // person_id, score_val
     top_scores: BinaryHeap<Score>, // size = RECOMMENDATION_SIZE
-    friends: HashSet<u64>,
+    friends:    HashSet<u64>,
 }
 
 impl FriendRecommendationsState {
     fn new(person_id: u64, conn: &Connection) -> FriendRecommendationsState {
         let mut state = FriendRecommendationsState {
-            person_id: person_id,
+            person_id:  person_id,
             all_scores: HashMap::<u64, u64>::new(),
             top_scores: BinaryHeap::<Score>::new(),
-            friends: HashSet::<u64>::new(),
+            friends:    HashSet::<u64>::new(),
         };
 
         state.init_static_scores(conn);
