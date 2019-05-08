@@ -20,20 +20,6 @@ const NOTIFICATION_FREQ: u64 = 1 * 3600;
 const RECOMMENDATION_SIZE: u64 = 5;
 const POSTGRES_URI: &'static str = "postgres://postgres:password@localhost:5432";
 
-#[derive(Clone, Debug)]
-pub enum RecommendationUpdate {
-    // TODO add more update types, the one below is just an example
-    Like { timestamp: u64, from_person_id: u64, to_person_id: u64 },
-}
-
-impl Timestamp for RecommendationUpdate {
-    fn timestamp(&self) -> u64 {
-        match self {
-            RecommendationUpdate::Like { timestamp: t, from_person_id: _, to_person_id: _ } => *t,
-        }
-    }
-}
-
 // TODO so far, it makes recommendations for a single person.
 pub trait FriendRecommendations<G: Scope> {
     fn friend_recommendations(&self, person_id: u64) -> Stream<G, Vec<u64>>;
@@ -52,6 +38,21 @@ impl<G: Scope<Timestamp = u64>> FriendRecommendations<G> for Stream<G, Recommend
         )
     }
 }
+
+#[derive(Clone, Debug)]
+pub enum RecommendationUpdate {
+    // TODO add more update types, the one below is just an example
+    Like { timestamp: u64, from_person_id: u64, to_person_id: u64 },
+}
+
+impl Timestamp for RecommendationUpdate {
+    fn timestamp(&self) -> u64 {
+        match self {
+            RecommendationUpdate::Like { timestamp: t, from_person_id: _, to_person_id: _ } => *t,
+        }
+    }
+}
+
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 struct Score {
