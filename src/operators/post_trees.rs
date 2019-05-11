@@ -42,7 +42,7 @@ impl<G: Scope<Timestamp = u64>> PostTrees<G> for Stream<G, Event> {
 
                     // update the post trees
                     for event in buf.drain(..) {
-                        // println!("{} {}", "+".bold().yellow(), event.to_string().bold().yellow());
+                        println!("{} {}", "+".bold().yellow(), event.to_string().bold().yellow());
                         let (opt_target_id, opt_root_post_id) = state.update_post_tree(&event);
 
                         // check if the root post_id has been already received
@@ -92,10 +92,16 @@ impl<G: Scope<Timestamp = u64>> PostTrees<G> for Stream<G, Event> {
     }
 }
 
+#[derive(Debug)]
+struct Node {
+    person_id: u64, // "creator" of the event
+    root_post_id: ID,
+}
+
 struct PostTreesState {
     worker_id: usize,
     // event ID --> post ID it refers to (root of the tree)
-    root_of: HashMap<ID, ID>,
+    root_of: HashMap<ID, Node>,
     // out-of-order events: id of missing event --> event that depends on it
     ooo_events: HashMap<ID, Vec<Event>>,
     // updates to be sent on the stat output stream
@@ -108,7 +114,7 @@ impl PostTreesState {
     fn new(worker_id: usize) -> PostTreesState {
         PostTreesState {
             worker_id:            worker_id,
-            root_of:              HashMap::<ID, ID>::new(),
+            root_of:              HashMap::<ID, Node>::new(),
             ooo_events:           HashMap::<ID, Vec<Event>>::new(),
             pending_stat_updates: Vec::new(),
             pending_rec_updates:  Vec::new(),
@@ -118,18 +124,25 @@ impl PostTreesState {
     fn update_post_tree(&mut self, event: &Event) -> (Option<ID>, Option<ID>) {
         match event {
             Event::Post(post) => {
-                self.root_of.insert(post.post_id, post.post_id);
+                let node = Node { person_id: post.person_id, root_post_id: post.post_id };
+                self.root_of.insert(post.post_id, node);
                 (None, Some(post.post_id))
             }
             Event::Like(like) => {
                 // likes are not stored in the tree
-                (Some(like.post_id), self.root_of.get(&like.post_id).copied()) // can only like a post
+                let post_id = match self.root_of.get(&like.post_id) {
+                    Some(_) => Some(like.post_id), // can only like a post
+                    None    => None
+                };
+                (Some(like.post_id), post_id) 
             }
             Event::Comment(comment) => {
                 let reply_to_id = comment.reply_to_post_id.or(comment.reply_to_comment_id).unwrap();
 
-                if let Some(&root_post_id) = self.root_of.get(&reply_to_id) {
-                    self.root_of.insert(comment.comment_id, root_post_id);
+                if let Some(root_node) = self.root_of.get(&reply_to_id) {
+                    let root_post_id = root_node.root_post_id;
+                    let node = Node { person_id: comment.person_id, root_post_id: root_post_id };
+                    self.root_of.insert(comment.comment_id, node);
                     (Some(reply_to_id), Some(root_post_id))
                 } else {
                     (Some(reply_to_id), None)
@@ -170,12 +183,14 @@ impl PostTreesState {
     }
 
     fn clean_ooo_events(&mut self, timestamp: u64) {
+        println!("before clean {:?}", self.ooo_events);
         self.ooo_events = self
             .ooo_events
             .clone()
             .into_iter()
             .filter(|(_, events)| events.iter().all(|event| event.timestamp() > timestamp))
             .collect::<HashMap<_, _>>();
+        println!("after clean {:?}", self.ooo_events);
     }
 
     /// generate all output updates for the current event
@@ -211,15 +226,17 @@ impl PostTreesState {
 
     /// given an event (and the current state of the post trees),
     /// generate a new recommendation update and append it to the pending list
-    fn append_rec_update(&mut self, event: &Event, _root_post_id: u64) {
-        // TODO implement
+    fn append_rec_update(&mut self, event: &Event, root_post_id: u64) {
 
-        let update = RecommendationUpdate::Like {
-            timestamp:      event.timestamp(),
-            from_person_id: 2,
-            to_person_id:   3,
-        };
-        self.pending_rec_updates.push(update)
+        if let Event::Like(_) = event {
+            let to_person_id = self.root_of.get(&ID::Post(root_post_id)).unwrap().person_id;
+            let update = RecommendationUpdate::Like {
+                timestamp:      event.timestamp(),
+                from_person_id: event.person_id(),
+                to_person_id:   to_person_id,
+            };
+            self.pending_rec_updates.push(update)
+        }
     }
 
     fn dump(&self) {

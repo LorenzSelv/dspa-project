@@ -1,6 +1,6 @@
 use std::cell::RefCell;
-use std::cmp::min;
 use std::rc::Rc;
+use std::fmt::Debug;
 
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::Operator;
@@ -11,19 +11,19 @@ pub trait Timestamp {
     fn timestamp(&self) -> u64;
 }
 
-pub trait WindowNotify<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: Clone + 'static, O: Data>
+pub trait WindowNotify<G: Scope<Timestamp = u64>, D: Data + Timestamp + Debug, S: Clone + 'static, O: Data>
 {
     fn window_notify(
         &self,
         window_size: u64,
         op_name: &'static str,
         state: S,
-        on_new_input: impl Fn(&mut S, &D) + 'static,
+        on_new_input: impl Fn(&mut S, &D, u64) + 'static,
         on_notify: impl Fn(&mut S, u64) -> O + 'static,
     ) -> Stream<G, O>;
 }
 
-impl<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: Clone + 'static, O: Data>
+impl<G: Scope<Timestamp = u64>, D: Data + Timestamp + Debug, S: Clone + 'static, O: Data>
     WindowNotify<G, D, S, O> for Stream<G, D>
 {
     fn window_notify(
@@ -31,7 +31,7 @@ impl<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: Clone + 'static, O: Data
         window_size: u64,
         op_name: &'static str,
         state: S,
-        on_new_input: impl Fn(&mut S, &D) + 'static,
+        on_new_input: impl Fn(&mut S, &D, u64) + 'static,
         on_notify: impl Fn(&mut S, u64) -> O + 'static,
     ) -> Stream<G, O> {
         let mut first_notification = true;
@@ -42,28 +42,29 @@ impl<G: Scope<Timestamp = u64>, D: Data + Timestamp, S: Clone + 'static, O: Data
 
         self.unary_notify(Pipeline, op_name, None, move |input, output, notificator| {
             input.for_each(|time, data| {
+                println!("time is {}", *time.time());
                 let mut buf = Vec::<D>::new();
                 data.swap(&mut buf);
 
-                let mut min_t = std::u64::MAX;
+                if first_notification {
+                    println!("buf is {:?}", buf);
+                    next_notification_time = buf.iter().map(|el| el.timestamp()).min().expect("wtf") + window_size;
+                    first_notification = false;
+                    // Set up the first notification.
+                    println!("next_notification is {}", next_notification_time);
+                    println!("current time is {}", *time.time());
+                    notificator.notify_at(time.delayed(&next_notification_time));
+                    println!("here");
+                }
 
                 for el in buf.drain(..) {
-                    min_t = min(min_t, el.timestamp());
-
                     // use caller-provided function to update the state
-                    on_new_input(&mut next_state, &el);
+                    on_new_input(&mut next_state, &el, next_notification_time);
                     // the event might belong to the next window
                     // update the current state only if it does not
                     if el.timestamp() <= next_notification_time {
-                        on_new_input(&mut cur_state, &el);
+                        on_new_input(&mut cur_state, &el, next_notification_time);
                     }
-                }
-
-                // Set up the first notification.
-                if first_notification && min_t != std::u64::MAX {
-                    next_notification_time = min_t + window_size;
-                    notificator.notify_at(time.delayed(&next_notification_time));
-                    first_notification = false;
                 }
             });
 

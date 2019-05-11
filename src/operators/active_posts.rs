@@ -20,7 +20,7 @@ impl<G: Scope<Timestamp = u64>> ActivePosts<G> for Stream<G, StatUpdate> {
             NOTIFICATION_FREQ,
             "ActivePosts",
             ActivePostsState::new(worker_id),
-            |state, stat_update| state.update_stats(&stat_update),
+            |state, stat_update, _| state.update_stats(&stat_update),
             |state, timestamp| state.active_posts_stats(timestamp),
         )
     }

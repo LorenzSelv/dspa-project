@@ -66,7 +66,7 @@ impl Event {
         }
     }
 
-    pub fn target_post_id(&self) -> u64 {
+    pub fn target_id(&self) -> u64 {
         match self {
             Event::Post(post) => post.post_id_u64,
             Event::Like(like) => like.post_id_u64,

@@ -55,7 +55,7 @@ where
         _ => false,
     });
 
-    let single = single.exchange(|event| event.target_post_id());
+    let single = single.exchange(|event| event.target_id());
     let broad = broad.broadcast();
 
     single.concat(&broad)
