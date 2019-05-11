@@ -28,6 +28,7 @@ use dspa::operators::active_posts::ActivePosts;
 use dspa::operators::active_posts::{dump_stats, Stats};
 use dspa::operators::friend_recommendations::dump_recommendations;
 use dspa::operators::friend_recommendations::FriendRecommendations;
+use dspa::operators::friend_recommendations::Score;
 use dspa::operators::post_trees::PostTrees;
 
 fn inspect_stats(widx: usize, stats: &HashMap<u64, Stats>) {
@@ -35,7 +36,7 @@ fn inspect_stats(widx: usize, stats: &HashMap<u64, Stats>) {
     dump_stats(stats, 4);
 }
 
-fn inspect_rec(widx: usize, rec: &Vec<u64>) {
+fn inspect_rec(widx: usize, rec: &Vec<Score>) {
     println!("{} {}", format!("[W{}]", widx).bold().blue(), "rec inspect".bold().blue());
     dump_recommendations(rec);
 }
