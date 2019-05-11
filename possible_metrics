@@ -6,9 +6,9 @@ person -- (workAt)  --> organisation
 forum  -- (hasMember)  --> person
 
 STREAMS:
-NOTREE | * person A follows tag T and person B posts something with tag T => suggest B to A
-NOTREE | * person A likes    post P created by person B => suggest B to A
-NOTREE | * person A comments post P created by person B => suggest B to A
+* person A follows tag T and person B posts something with tag T => suggest B to A
+* person A likes    post P created by person B => suggest B to A
+* person A comments post P created by person B => suggest B to A
 * person A reply to comment C created by person B => suggest B to A
 * person A and person B comments / likes / reply to the same post P => suggest B to A and A to B
 
