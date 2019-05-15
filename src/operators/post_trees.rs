@@ -55,8 +55,8 @@ impl<G: Scope<Timestamp = u64>> PostTrees<G> for Stream<G, Event> {
                                 }
 
                                 // check whether we can pop some stuff out of the ooo map
-                                if let Some(eid) = event.id() {
-                                    state.process_ooo_events(eid);
+                                if let Some(_) = event.id() {
+                                    state.process_ooo_events(&event);
                                 }
                             }
                             None => {
@@ -134,7 +134,7 @@ impl PostTreesState {
                     Some(_) => Some(like.post_id), // can only like a post
                     None    => None
                 };
-                (Some(like.post_id), post_id) 
+                (Some(like.post_id), post_id)
             }
             Event::Comment(comment) => {
                 let reply_to_id = comment.reply_to_post_id.or(comment.reply_to_comment_id).unwrap();
@@ -153,27 +153,31 @@ impl PostTreesState {
 
     /// process events that have `id` as their target,
     /// recursively process the newly inserted ids
-    fn process_ooo_events(&mut self, id: ID) {
+    fn process_ooo_events(&mut self, root_event: &Event) {
+        let id = root_event.id().unwrap();
         if let Some(events) = self.ooo_events.remove(&id) {
             println!("-- {} for id = {:?}", "process_ooo_events".bold().yellow(), id);
 
-            let mut new_ids = Vec::new();
+            let mut new_events = Vec::new();
             for event in events {
                 let (opt_target_id, opt_root_post_id) = self.update_post_tree(&event);
                 assert!(opt_target_id.unwrap() == id, "wtf");
                 let root_post_id =
                     opt_root_post_id.expect("[process_ooo_events] root_post_id is None");
 
-                self.append_output_updates(&event, root_post_id.u64());
+                // only use this event if its timestamp is greater or equal to the parent's.
+                if event.timestamp() >= root_event.timestamp() {
+                    self.append_output_updates(&event, root_post_id.u64());
 
-                if let Some(new_id) = event.id() {
-                    new_ids.push(new_id)
+                    if let Some(_) = event.id() {
+                        new_events.push(event);
+                    }
                 }
             }
 
             // adding events might unlock other ooo events
-            for new_id in new_ids.drain(..) {
-                self.process_ooo_events(new_id);
+            for event in new_events.drain(..) {
+                self.process_ooo_events(&event);
             }
         }
     }
