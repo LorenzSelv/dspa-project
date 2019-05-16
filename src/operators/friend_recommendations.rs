@@ -1,7 +1,18 @@
-use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+// From midterm report:
+//
+// Suppose we wish to recommend friend to person A. From the stream, we consider
+// following scenarios when computing score for person B:
+//
+// Person A is interested in tag T and person B creates a post with tag T.
+//  x  Person A likes post P created by person B.
+//  x  Person A comments on post P created by person B.
+//     Person A replies to comment C created by person B.
+//     Person A and person B comments / likes / replies to the same post P.
 
-use colored::*;
+
+use std::cmp::Ordering;
+use std::cmp::min;
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
 use timely::dataflow::{Scope, Stream};
 
@@ -14,7 +25,7 @@ const ACTIVE_WINDOW_SECONDS: u64 = 4 * 3600;
 const NOTIFICATION_FREQ: u64 = 1 * 3600;
 const NUM_WINDOWS: usize = (ACTIVE_WINDOW_SECONDS / NOTIFICATION_FREQ) as usize;
 const RECOMMENDATION_SIZE: usize = 5;
-const POSTGRES_URI: &'static str = "postgres://postgres:password@localhost:5432";
+const POSTGRES_URI: &'static str = "postgres://postgres:postgres@localhost:5432";
 
 // TODO tune the weights
 const COMMON_FRIENDS_WEIGHT: u64 = 1;
@@ -22,7 +33,9 @@ const WORK_AT_WEIGHT: u64 = 1;
 const STUDY_AT_WEIGHT: u64 = 1;
 
 // weights for dynamic events
-const LIKE_WEIGHT: u64 = 1;
+const LIKE_WEIGHT: u64 = 50;
+const COMMENT_WEIGHT: u64 = 50;
+const REPLY_WEIGHT: u64 = 50;
 
 // TODO so far, it makes recommendations for a single person.
 pub trait FriendRecommendations<G: Scope> {
@@ -39,7 +52,8 @@ impl<G: Scope<Timestamp = u64>> FriendRecommendations<G> for Stream<G, Recommend
             NOTIFICATION_FREQ,
             "FriendRecommendations",
             DynamicState::new(person_id),
-            |dyn_state, rec_update, next_notification_time| dyn_state.update(rec_update, next_notification_time),
+            |dyn_state, rec_update, next_notification_time|
+            dyn_state.update(rec_update, next_notification_time),
             move |dyn_state, timestamp| dyn_state.get_recommendations(&static_state, timestamp),
         )
     }
@@ -49,12 +63,16 @@ impl<G: Scope<Timestamp = u64>> FriendRecommendations<G> for Stream<G, Recommend
 pub enum RecommendationUpdate {
     // TODO add more update types, the one below is just an example
     Like { timestamp: u64, from_person_id: u64, to_person_id: u64 },
+    Comment { timestamp: u64, from_person_id: u64, to_person_id: u64 },
+    Reply { timestamp: u64, from_person_id: u64, to_person_id: u64},
 }
 
 impl Timestamp for RecommendationUpdate {
     fn timestamp(&self) -> u64 {
         match self {
             RecommendationUpdate::Like { timestamp: t, from_person_id: _, to_person_id: _ } => *t,
+            RecommendationUpdate::Comment { timestamp: t, from_person_id: _, to_person_id: _ } => *t,
+            RecommendationUpdate::Reply { timestamp: t, from_person_id: _, to_person_id: _ } => *t,
         }
     }
 }
@@ -80,8 +98,8 @@ impl PartialOrd for Score {
 
 #[derive(Clone)]
 struct DynamicState {
-    person_id: u64,
-    window_scores:    VecDeque<HashMap<u64, u64>>, // person_id, score_val
+    person_id:         u64,
+    window_scores:     VecDeque<HashMap<u64, u64>>, // person_id, score_val
     last_notification: u64,
 }
 
@@ -90,7 +108,7 @@ impl DynamicState {
         DynamicState {
             person_id: person_id,
             window_scores: VecDeque::new(),
-            last_notification: 0, 
+            last_notification: 0,
         }
     }
 
@@ -100,6 +118,18 @@ impl DynamicState {
             RecommendationUpdate::Like { timestamp: _, from_person_id: fpid, to_person_id: tpid } =>
                 if self.person_id == *fpid {
                     Some(Score { person_id: *tpid, score: LIKE_WEIGHT })
+                } else { None }
+            RecommendationUpdate::Comment { timestamp: _,
+                                            from_person_id: fpid,
+                                            to_person_id: tpid} =>
+                if self.person_id == *fpid {
+                    Some(Score {person_id: *tpid, score: COMMENT_WEIGHT })
+                } else { None }
+            RecommendationUpdate::Reply { timestamp: _,
+                                          from_person_id: fpid,
+                                          to_person_id: tpid} =>
+                if self.person_id == *fpid {
+                    Some(Score {person_id: *tpid, score: REPLY_WEIGHT })
                 } else { None }
         };
 
@@ -114,11 +144,12 @@ impl DynamicState {
     }
 
     fn delta_update(&mut self, delta: Score, event_timestamp: u64) {
-         
+
         let idx =
             if event_timestamp <= self.last_notification {
-                let back_offset = ((self.last_notification - event_timestamp) / NOTIFICATION_FREQ) as usize;
-                
+                let back_offset
+                    = ((self.last_notification - event_timestamp) / NOTIFICATION_FREQ) as usize;
+
                 if back_offset >= self.window_scores.len() {
                     self.window_scores.push_back(HashMap::new());
                 }
@@ -133,7 +164,6 @@ impl DynamicState {
                 self.window_scores.truncate(NUM_WINDOWS);
                 0
             };
-
         *self.window_scores[idx].entry(delta.person_id).or_insert(0) += delta.score;
     }
 
@@ -141,19 +171,23 @@ impl DynamicState {
     fn get_recommendations(&mut self, static_state: &StaticState, notification_timestamp: u64) -> Vec<Score> {
         // TODO use timestamp (of the notification) to discard events older than 4 hours
         // either keep recommendation events and discard those older that timestamp - 4 hours
-        // or .. ? 
-
+        // or .. ?
         assert!(notification_timestamp >= self.last_notification);
 
         // discard old windows
-        let empty_windows = ((notification_timestamp - self.last_notification) / NOTIFICATION_FREQ) as usize;
+        let empty_windows = min(NUM_WINDOWS,
+            ((notification_timestamp - self.last_notification) / NOTIFICATION_FREQ) as usize);
         self.window_scores.truncate(NUM_WINDOWS - empty_windows);
 
         // keep a min-heap
         let mut top_scores = BinaryHeap::with_capacity(RECOMMENDATION_SIZE);
 
         for (&person_id, &static_score) in static_state.scores.iter() {
-            let dyn_score: u64 = self.window_scores.iter().map(|ws| ws.get(&person_id).unwrap_or(&0)).sum();
+            let dyn_score: u64 =
+                self.window_scores.iter().map(|ws| ws.get(&person_id).unwrap_or(&0)).sum();
+            if dyn_score > 0 {
+                println!("dynamic score for {} of {}", person_id, dyn_score);
+            }
             let score = static_score + dyn_score;
 
             if top_scores.len() < RECOMMENDATION_SIZE {
@@ -217,6 +251,7 @@ impl StaticState {
         }
 
         let query_weight = vec![
+            (query::non_friends(self.person_id), 0_u64),
             (query::common_friends(self.person_id), COMMON_FRIENDS_WEIGHT),
             (query::work_at(self.person_id), WORK_AT_WEIGHT),
             (query::study_at(self.person_id), STUDY_AT_WEIGHT),
