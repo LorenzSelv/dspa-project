@@ -57,3 +57,12 @@ pub fn study_at(person_id: u64) -> String {
         person_id, person_id
     )
 }
+
+pub fn forums(person_id: u64) -> String {
+    format!(
+        "SELECT DISTINCT(forum_id)
+         FROM forum_has_member
+         WHERE person_id = {}",
+        person_id
+    )
+}

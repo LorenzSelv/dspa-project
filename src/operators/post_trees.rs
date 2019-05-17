@@ -247,9 +247,17 @@ impl PostTreesState {
                     timestamp:      event.timestamp(),
                     from_person_id: event.person_id(),
                     to_person_id:   to_person_id,
+
                 };
                 self.pending_rec_updates.push(update)
             }
+        } else if let Event::Post(post) = event {
+            let update = RecommendationUpdate::Post {
+                timestamp: event.timestamp(),
+                person_id: event.person_id(),
+                forum_id:     post.forum_id,
+            };
+            self.pending_rec_updates.push(update)
         }
     }
 

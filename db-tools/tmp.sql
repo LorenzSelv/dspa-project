@@ -32,3 +32,9 @@ ORDER BY count DESC;
 SELECT person_id2
 FROM person_knows_person
 WHERE person_id1 = 38;
+
+SELECT person_id, COUNT(DISTINCT(forum_id)) as c
+FROM forum_has_member
+-- WHERE person_id = 20;
+GROUP BY person_id
+ORDER BY c DESC;

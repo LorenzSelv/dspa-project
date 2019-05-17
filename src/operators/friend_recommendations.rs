@@ -8,7 +8,8 @@
 //  x  Person A comments on post P created by person B.
 //     Person A replies to comment C created by person B.
 //     Person A and person B comments / likes / replies to the same post P.
-
+//  x  Person B posts in a forum that person A is a member of.
+//     Person B comments in a forum that person A is a member of.
 
 use std::cmp::Ordering;
 use std::cmp::min;
@@ -33,9 +34,10 @@ const WORK_AT_WEIGHT: u64 = 1;
 const STUDY_AT_WEIGHT: u64 = 1;
 
 // weights for dynamic events
-const LIKE_WEIGHT: u64 = 50;
-const COMMENT_WEIGHT: u64 = 50;
-const REPLY_WEIGHT: u64 = 50;
+const LIKE_WEIGHT:       u64 = 50;
+const COMMENT_WEIGHT:    u64 = 50;
+const REPLY_WEIGHT:      u64 = 50;
+const FORUM_POST_WEIGHT: u64 = 20;
 
 // TODO so far, it makes recommendations for a single person.
 pub trait FriendRecommendations<G: Scope> {
@@ -47,13 +49,14 @@ impl<G: Scope<Timestamp = u64>> FriendRecommendations<G> for Stream<G, Recommend
         let conn = Connection::connect(POSTGRES_URI, TlsMode::None).unwrap();
 
         let static_state = StaticState::new(person_id, &conn);
+        let static_state_copy = static_state.clone();
 
         self.window_notify(
             NOTIFICATION_FREQ,
             "FriendRecommendations",
             DynamicState::new(person_id),
-            |dyn_state, rec_update, next_notification_time|
-            dyn_state.update(rec_update, next_notification_time),
+            move |dyn_state, rec_update, next_notification_time|
+            dyn_state.update(rec_update, &static_state_copy, next_notification_time),
             move |dyn_state, timestamp| dyn_state.get_recommendations(&static_state, timestamp),
         )
     }
@@ -62,6 +65,7 @@ impl<G: Scope<Timestamp = u64>> FriendRecommendations<G> for Stream<G, Recommend
 #[derive(Clone, Debug)]
 pub enum RecommendationUpdate {
     // TODO add more update types, the one below is just an example
+    Post { timestamp: u64, person_id: u64, forum_id: u64 },
     Like { timestamp: u64, from_person_id: u64, to_person_id: u64 },
     Comment { timestamp: u64, from_person_id: u64, to_person_id: u64 },
     Reply { timestamp: u64, from_person_id: u64, to_person_id: u64},
@@ -70,6 +74,7 @@ pub enum RecommendationUpdate {
 impl Timestamp for RecommendationUpdate {
     fn timestamp(&self) -> u64 {
         match self {
+            RecommendationUpdate::Post { timestamp: t, person_id: _, forum_id: _} => *t,
             RecommendationUpdate::Like { timestamp: t, from_person_id: _, to_person_id: _ } => *t,
             RecommendationUpdate::Comment { timestamp: t, from_person_id: _, to_person_id: _ } => *t,
             RecommendationUpdate::Reply { timestamp: t, from_person_id: _, to_person_id: _ } => *t,
@@ -113,7 +118,10 @@ impl DynamicState {
     }
 
     /// given a recommendationUpdate update the dynamic score
-    fn update(&mut self, rec_update: &RecommendationUpdate, next_notification_time: u64) {
+    fn update(&mut self,
+              rec_update: &RecommendationUpdate,
+              static_state: &StaticState,
+              next_notification_time: u64) {
         let delta_opt = match rec_update {
             RecommendationUpdate::Like { timestamp: _, from_person_id: fpid, to_person_id: tpid } =>
                 if self.person_id == *fpid {
@@ -130,6 +138,12 @@ impl DynamicState {
                                           to_person_id: tpid} =>
                 if self.person_id == *fpid {
                     Some(Score {person_id: *tpid, score: REPLY_WEIGHT })
+                } else { None }
+            RecommendationUpdate::Post { timestamp: _,
+                                         person_id: pid,
+                                         forum_id: forum} =>
+                if static_state.forums.contains(&pid) {
+                    Some(Score {person_id: *pid, score: FORUM_POST_WEIGHT })
                 } else { None }
         };
 
@@ -207,10 +221,12 @@ impl DynamicState {
 
 /// Store states that does not change over time
 /// i.e scores computed from static data and the list of friends
+#[derive(Clone)]
 struct StaticState {
     person_id: u64,
     scores:    HashMap<u64, u64>, // person_id, score_val
     friends:   HashSet<u64>,
+    forums:    HashSet<u64>,
 }
 
 impl StaticState {
@@ -219,6 +235,7 @@ impl StaticState {
             person_id: person_id,
             scores:    HashMap::<u64, u64>::new(),
             friends:   HashSet::<u64>::new(),
+            forums:    HashSet::<u64>::new(),
         };
 
         state.init_static_scores(conn);
@@ -248,6 +265,13 @@ impl StaticState {
         for row in &conn.query(&query, &[]).unwrap() {
             let person_id = row.get::<_, i64>(0) as u64;
             self.friends.insert(person_id);
+        }
+
+        let query2 = query::forums(self.person_id);
+        for row in &conn.query(&query2, &[]).unwrap() {
+            let forum_id = row.get::<_, i64>(0) as u64;
+            self.forums.insert(forum_id);
+
         }
 
         let query_weight = vec![

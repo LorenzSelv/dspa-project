@@ -36,3 +36,17 @@ DELETE FROM person_workAt_organisation;
 
 \set t1 :tables'person_workAt_organisation.csv'
 COPY person_workAt_organisation FROM :'t1' DELIMITERS '|' CSV HEADER;
+
+DROP TABLE forum_has_member;
+
+CREATE TABLE IF NOT EXISTS forum_has_member (
+forum_id       BIGINT NOT NULL,
+person_id      BIGINT NOT NULL,
+join_date      TIMESTAMP,
+PRIMARY KEY    (forum_id, person_id)
+);
+
+DELETE FROM forum_has_member;
+
+\set t1 :tables'forum_hasMember_person.csv'
+COPY forum_has_member FROM :'t1' DELIMITERS '|' CSV HEADER;
