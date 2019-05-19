@@ -3,9 +3,11 @@
  * - handle the case when number of workers and number of partitions is not the same
  * - more TODOs...
  */
+#[macro_use]
+extern crate lazy_static;
+
 
 extern crate config;
-extern crate lazy_static;
 extern crate rdkafka;
 extern crate serde;
 extern crate serde_derive;
@@ -31,14 +33,26 @@ use dspa::operators::friend_recommendations::FriendRecommendations;
 use dspa::operators::friend_recommendations::Score;
 use dspa::operators::post_trees::PostTrees;
 
+lazy_static! {
+    static ref SETTINGS: config::Config = {
+        let mut s = config::Config::default();
+        s.merge(config::File::with_name("Settings")).unwrap();
+        s
+    };
+    static ref RECOMMENDATION_CLIENTS: String =
+        SETTINGS.get::<String>("RECOMMENDATION_CLIENTS").unwrap();
+}
+
 fn inspect_stats(widx: usize, stats: &HashMap<u64, Stats>) {
     println!("{} {}", format!("[W{}]", widx).bold().red(), "stats inspect".bold().red());
     dump_stats(stats, 4);
 }
 
-fn inspect_rec(widx: usize, rec: &Vec<Score>) {
+fn inspect_rec(widx: usize, rec: &HashMap<u64, Vec<Score>>) {
     println!("{} {}", format!("[W{}]", widx).bold().blue(), "rec inspect".bold().blue());
-    dump_recommendations(rec);
+    for (pid, rec_single) in rec.iter() {
+        dump_recommendations(*pid, rec_single);
+    }
 }
 
 fn get_event_stream<G>(scope: &mut G, widx: usize, num_workers: usize) -> Stream<G, Event>
@@ -66,17 +80,33 @@ fn main() {
         let widx = worker.index();
         let num_workers = worker.peers();
 
+        let recommendation_pids: Vec<u64> = RECOMMENDATION_CLIENTS
+            .split(',')
+            .map(|s| s.trim())
+            .map(|s| s.parse().unwrap())
+            .collect();
+
+        assert!(recommendation_pids.len() == 10);
+
+        let num_pids:  usize = 10 / num_workers;
+        let start_pid: usize = widx * num_pids;
+        let end_pid:   usize =  { if widx == (num_workers - 1) { 10 } else { start_pid + num_pids }};
+
         worker.dataflow::<u64, _, _>(move |scope| {
             let event_stream = get_event_stream(scope, widx, num_workers);
 
             let (stat_updates, rec_updates) = event_stream.post_trees(widx);
 
             let widx1 = widx.clone();
-            stat_updates.active_posts(widx).inspect(move |stats| inspect_stats(widx1, stats));
+            stat_updates
+                .active_posts(widx)
+                .inspect(move |stats| inspect_stats(widx1, stats));
 
             let widx2 = widx.clone();
             // TODO pass a list of people instead
-            rec_updates.friend_recommendations(38_u64).inspect(move |rec| inspect_rec(widx2, rec));
+            rec_updates
+                .friend_recommendations(&recommendation_pids[start_pid..end_pid].to_vec())
+                .inspect(move |rec| inspect_rec(widx2, rec));
         });
     })
     .expect("Timely computation failed somehow");

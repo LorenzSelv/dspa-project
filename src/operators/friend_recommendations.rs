@@ -55,22 +55,22 @@ pub fn parse_tags(tags: &Option<String>) -> Vec<u64> {
     }
 }
 
-// TODO so far, it makes recommendations for a single person.
 pub trait FriendRecommendations<G: Scope> {
-    fn friend_recommendations(&self, person_id: u64) -> Stream<G, Vec<Score>>;
+    fn friend_recommendations(&self, person_ids: &Vec<u64>) -> Stream<G, HashMap<u64, Vec<Score>>>;
 }
 
 impl<G: Scope<Timestamp = u64>> FriendRecommendations<G> for Stream<G, RecommendationUpdate> {
-    fn friend_recommendations(&self, person_id: u64) -> Stream<G, Vec<Score>> {
+    fn friend_recommendations(&self, person_ids: &Vec<u64>) -> Stream<G, HashMap<u64, Vec<Score>>> {
         let conn = Connection::connect(POSTGRES_URI, TlsMode::None).unwrap();
 
-        let static_state = StaticState::new(person_id, &conn);
+
+        let static_state = StaticState::new(person_ids, &conn);
         let static_state_copy = static_state.clone();
 
         self.window_notify(
             NOTIFICATION_FREQ,
             "FriendRecommendations",
-            DynamicState::new(person_id),
+            DynamicState::new(person_ids),
             move |dyn_state, rec_update, next_notification_time|
             dyn_state.update(rec_update, &static_state_copy, next_notification_time),
             move |dyn_state, timestamp| dyn_state.get_recommendations(&static_state, timestamp),
@@ -117,17 +117,53 @@ impl PartialOrd for Score {
     fn partial_cmp(&self, other: &Score) -> Option<Ordering> { Some(self.cmp(other)) }
 }
 
+
 #[derive(Clone)]
 struct DynamicState {
+    pid_to_state: HashMap<u64, DynamicStateSingle>,
+}
+
+impl DynamicState {
+    fn new(person_ids: &Vec<u64>) ->DynamicState {
+        let mut ds = DynamicState {
+            pid_to_state: HashMap::new(),
+        };
+        for pid in person_ids {
+            ds.pid_to_state.insert(*pid, DynamicStateSingle::new(*pid));
+        }
+        ds
+    }
+
+    fn update(&mut self,
+              rec_update: &RecommendationUpdate,
+              static_state: &StaticState,
+              next_notification_time: u64) {
+        for (pid, state) in self.pid_to_state.iter_mut() {
+            state.update(rec_update, static_state.get(*pid), next_notification_time);
+        }
+    }
+
+    fn get_recommendations(&mut self, static_state: &StaticState, notification_timestamp: u64) -> HashMap<u64, Vec<Score>> {
+        let mut map: HashMap<u64, Vec<Score>> = HashMap::new();
+        for (pid, state) in self.pid_to_state.iter_mut() {
+            map.insert(*pid, state.get_recommendations(static_state.get(*pid),
+                                                       notification_timestamp));
+        }
+        map
+    }
+}
+
+#[derive(Clone)]
+struct DynamicStateSingle {
     person_id:         u64,
     window_scores:     VecDeque<HashMap<u64, u64>>, // person_id, score_val
     last_notification: u64,
     post_tags:          HashSet<u64>,
 }
 
-impl DynamicState {
-    fn new(person_id: u64) -> DynamicState {
-        DynamicState {
+impl DynamicStateSingle {
+    fn new(person_id: u64) -> DynamicStateSingle {
+        DynamicStateSingle {
             person_id: person_id,
             window_scores: VecDeque::new(),
             last_notification: 0,
@@ -138,7 +174,7 @@ impl DynamicState {
     /// given a recommendationUpdate update the dynamic score
     fn update(&mut self,
               rec_update: &RecommendationUpdate,
-              static_state: &StaticState,
+              static_state: &StaticStateSingle,
               next_notification_time: u64) {
         let delta_opt = match rec_update {
             RecommendationUpdate::Like { timestamp: _, from_person_id: fpid, to_person_id: tpid } =>
@@ -216,7 +252,8 @@ impl DynamicState {
     }
 
     /// compute final scores and emit the top RECOMMENDATION_SIZE person_ids
-    fn get_recommendations(&mut self, static_state: &StaticState, notification_timestamp: u64) -> Vec<Score> {
+    fn get_recommendations(&mut self, static_state: &StaticStateSingle,
+                           notification_timestamp: u64) -> Vec<Score> {
         // TODO use timestamp (of the notification) to discard events older than 4 hours
         // either keep recommendation events and discard those older that timestamp - 4 hours
         // or .. ?
@@ -253,19 +290,40 @@ impl DynamicState {
     }
 }
 
+#[derive(Clone)]
+struct StaticState {
+    pid_to_state: HashMap<u64, StaticStateSingle>,
+}
+
+impl StaticState {
+    fn new(person_ids: &Vec<u64>, conn: &Connection) -> StaticState {
+        let mut ss = StaticState {
+            pid_to_state: HashMap::new(),
+        };
+        for pid in person_ids {
+            ss.pid_to_state.insert(*pid, StaticStateSingle::new(*pid, conn));
+        }
+        ss
+    }
+
+    fn get(&self, pid: u64) -> &StaticStateSingle {
+        self.pid_to_state.get(&pid).unwrap()
+    }
+}
+
 /// Store states that does not change over time
 /// i.e scores computed from static data and the list of friends
 #[derive(Clone)]
-struct StaticState {
+struct StaticStateSingle {
     person_id: u64,
     scores:    HashMap<u64, u64>, // person_id, score_val
     friends:   HashSet<u64>,
     forums:    HashSet<u64>,
 }
 
-impl StaticState {
-    fn new(person_id: u64, conn: &Connection) -> StaticState {
-        let mut state = StaticState {
+impl StaticStateSingle {
+    fn new(person_id: u64, conn: &Connection) -> StaticStateSingle {
+        let mut state = StaticStateSingle {
             person_id: person_id,
             scores:    HashMap::<u64, u64>::new(),
             friends:   HashSet::<u64>::new(),
@@ -320,9 +378,9 @@ impl StaticState {
 }
 
 // TODO extend to multiple people
-pub fn dump_recommendations(scores: &Vec<Score>) {
+pub fn dump_recommendations(pid: u64, scores: &Vec<Score>) {
     let spaces = " ".repeat(4);
-    println!("{}--- recommendations", spaces);
+    println!("{}--- recommendations for {}", spaces, pid);
     for score in scores.iter() {
         println!("{}  {:?}", spaces, score);
     }
