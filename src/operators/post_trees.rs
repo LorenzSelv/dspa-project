@@ -231,13 +231,12 @@ impl PostTreesState {
     /// given an event (and the current state of the post trees),
     /// generate a new recommendation update and append it to the pending list
     fn append_rec_update(&mut self, event: &Event, root_post_id: u64) {
-
-        if let Event::Like(_) = event {
-            let to_person_id = self.root_of.get(&ID::Post(root_post_id)).unwrap().person_id;
-            let update = RecommendationUpdate::Like {
-                timestamp:      event.timestamp(),
-                from_person_id: event.person_id(),
-                to_person_id:   to_person_id,
+        if let Event::Post(post) = event {
+            let update = RecommendationUpdate::Post {
+                timestamp: event.timestamp(),
+                person_id: event.person_id(),
+                forum_id:  post.forum_id,
+                tags:      post.tags.clone(),
             };
             self.pending_rec_updates.push(update)
         } else if let Event::Comment(comment_event) = event {
@@ -251,11 +250,12 @@ impl PostTreesState {
                 };
                 self.pending_rec_updates.push(update)
             }
-        } else if let Event::Post(post) = event {
-            let update = RecommendationUpdate::Post {
-                timestamp: event.timestamp(),
-                person_id: event.person_id(),
-                forum_id:     post.forum_id,
+        } else if let Event::Like(_) = event {
+            let to_person_id = self.root_of.get(&ID::Post(root_post_id)).unwrap().person_id;
+            let update = RecommendationUpdate::Like {
+                timestamp:      event.timestamp(),
+                from_person_id: event.person_id(),
+                to_person_id:   to_person_id,
             };
             self.pending_rec_updates.push(update)
         }

@@ -38,6 +38,22 @@ const LIKE_WEIGHT:       u64 = 50;
 const COMMENT_WEIGHT:    u64 = 50;
 const REPLY_WEIGHT:      u64 = 50;
 const FORUM_POST_WEIGHT: u64 = 20;
+const TAG_POST_WEIGHT:   u64 = 100;
+
+pub fn parse_tags(tags: &Option<String>) -> Vec<u64> {
+    let mut v: Vec<u64> = Vec::new();
+    if let Some(tag_string) = tags {
+        v = tag_string[1..tag_string.len()-2]
+            .split(", ")
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.parse().unwrap())
+            .collect();
+        v
+    } else {
+        v
+    }
+}
 
 // TODO so far, it makes recommendations for a single person.
 pub trait FriendRecommendations<G: Scope> {
@@ -65,7 +81,7 @@ impl<G: Scope<Timestamp = u64>> FriendRecommendations<G> for Stream<G, Recommend
 #[derive(Clone, Debug)]
 pub enum RecommendationUpdate {
     // TODO add more update types, the one below is just an example
-    Post { timestamp: u64, person_id: u64, forum_id: u64 },
+    Post { timestamp: u64, person_id: u64, forum_id: u64 , tags: Option<String>},
     Like { timestamp: u64, from_person_id: u64, to_person_id: u64 },
     Comment { timestamp: u64, from_person_id: u64, to_person_id: u64 },
     Reply { timestamp: u64, from_person_id: u64, to_person_id: u64},
@@ -74,7 +90,7 @@ pub enum RecommendationUpdate {
 impl Timestamp for RecommendationUpdate {
     fn timestamp(&self) -> u64 {
         match self {
-            RecommendationUpdate::Post { timestamp: t, person_id: _, forum_id: _} => *t,
+            RecommendationUpdate::Post { timestamp: t, person_id: _, forum_id: _, tags: _} => *t,
             RecommendationUpdate::Like { timestamp: t, from_person_id: _, to_person_id: _ } => *t,
             RecommendationUpdate::Comment { timestamp: t, from_person_id: _, to_person_id: _ } => *t,
             RecommendationUpdate::Reply { timestamp: t, from_person_id: _, to_person_id: _ } => *t,
@@ -106,6 +122,7 @@ struct DynamicState {
     person_id:         u64,
     window_scores:     VecDeque<HashMap<u64, u64>>, // person_id, score_val
     last_notification: u64,
+    post_tags:          HashSet<u64>,
 }
 
 impl DynamicState {
@@ -114,6 +131,7 @@ impl DynamicState {
             person_id: person_id,
             window_scores: VecDeque::new(),
             last_notification: 0,
+            post_tags:         HashSet::new(),
         }
     }
 
@@ -141,10 +159,26 @@ impl DynamicState {
                 } else { None }
             RecommendationUpdate::Post { timestamp: _,
                                          person_id: pid,
-                                         forum_id: forum} =>
-                if static_state.forums.contains(&pid) {
-                    Some(Score {person_id: *pid, score: FORUM_POST_WEIGHT })
-                } else { None }
+                                         forum_id: forum,
+                                         tags: tags_string} => {
+                let tags: Vec<u64> = parse_tags(tags_string);
+                if self.person_id == *pid {
+                    // Insert tags into dynamic state
+                    for n in tags {
+                        self.post_tags.insert(n);
+                    }
+                    None
+                } else {
+                    // Base the score on the tags of the post as well as the forum.
+                    let relevan_tags: Vec<&u64> =
+                        tags.iter().filter(|n| self.post_tags.contains(n)).collect();
+                    let mut new_score: u64 = TAG_POST_WEIGHT * relevan_tags.len() as u64;
+                    if static_state.forums.contains(&forum) {
+                        new_score += FORUM_POST_WEIGHT;
+                    }
+                    Some(Score {person_id: *pid, score: new_score })
+                }
+            }
         };
 
         if self.last_notification == 0 {
