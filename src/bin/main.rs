@@ -6,7 +6,6 @@
 #[macro_use]
 extern crate lazy_static;
 
-
 extern crate config;
 extern crate rdkafka;
 extern crate serde;
@@ -88,9 +87,15 @@ fn main() {
 
         assert!(recommendation_pids.len() == 10);
 
-        let num_pids:  usize = 10 / num_workers;
+        let num_pids: usize = 10 / num_workers;
         let start_pid: usize = widx * num_pids;
-        let end_pid:   usize =  { if widx == (num_workers - 1) { 10 } else { start_pid + num_pids }};
+        let end_pid: usize = {
+            if widx == (num_workers - 1) {
+                10
+            } else {
+                start_pid + num_pids
+            }
+        };
 
         worker.dataflow::<u64, _, _>(move |scope| {
             let event_stream = get_event_stream(scope, widx, num_workers);
@@ -98,9 +103,7 @@ fn main() {
             let (stat_updates, rec_updates) = event_stream.post_trees(widx);
 
             let widx1 = widx.clone();
-            stat_updates
-                .active_posts(widx)
-                .inspect(move |stats| inspect_stats(widx1, stats));
+            stat_updates.active_posts(widx).inspect(move |stats| inspect_stats(widx1, stats));
 
             let widx2 = widx.clone();
             // TODO pass a list of people instead

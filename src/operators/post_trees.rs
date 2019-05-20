@@ -94,7 +94,7 @@ impl<G: Scope<Timestamp = u64>> PostTrees<G> for Stream<G, Event> {
 
 #[derive(Debug)]
 struct Node {
-    person_id: u64, // "creator" of the event
+    person_id:    u64, // "creator" of the event
     root_post_id: ID,
 }
 
@@ -132,7 +132,7 @@ impl PostTreesState {
                 // likes are not stored in the tree
                 let post_id = match self.root_of.get(&like.post_id) {
                     Some(_) => Some(like.post_id), // can only like a post
-                    None    => None
+                    None => None,
                 };
                 (Some(like.post_id), post_id)
             }
@@ -246,7 +246,6 @@ impl PostTreesState {
                     timestamp:      event.timestamp(),
                     from_person_id: event.person_id(),
                     to_person_id:   to_person_id,
-
                 };
                 self.pending_rec_updates.push(update)
             }

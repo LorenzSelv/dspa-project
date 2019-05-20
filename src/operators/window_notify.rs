@@ -1,6 +1,6 @@
 use std::cell::RefCell;
-use std::rc::Rc;
 use std::fmt::Debug;
+use std::rc::Rc;
 
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::Operator;
@@ -11,7 +11,12 @@ pub trait Timestamp {
     fn timestamp(&self) -> u64;
 }
 
-pub trait WindowNotify<G: Scope<Timestamp = u64>, D: Data + Timestamp + Debug, S: Clone + 'static, O: Data>
+pub trait WindowNotify<
+    G: Scope<Timestamp = u64>,
+    D: Data + Timestamp + Debug,
+    S: Clone + 'static,
+    O: Data,
+>
 {
     fn window_notify(
         &self,
@@ -48,7 +53,8 @@ impl<G: Scope<Timestamp = u64>, D: Data + Timestamp + Debug, S: Clone + 'static,
 
                 if first_notification {
                     println!("buf is {:?}", buf);
-                    next_notification_time = buf.iter().map(|el| el.timestamp()).min().expect("wtf") + window_size;
+                    next_notification_time =
+                        buf.iter().map(|el| el.timestamp()).min().expect("wtf") + window_size;
                     first_notification = false;
                     // Set up the first notification.
                     println!("next_notification is {}", next_notification_time);
