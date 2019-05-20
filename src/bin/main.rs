@@ -106,7 +106,6 @@ fn main() {
             stat_updates.active_posts(widx).inspect(move |stats| inspect_stats(widx1, stats));
 
             let widx2 = widx.clone();
-            // TODO pass a list of people instead
             rec_updates
                 .friend_recommendations(&recommendation_pids[start_pid..end_pid].to_vec())
                 .inspect(move |rec| inspect_rec(widx2, rec));

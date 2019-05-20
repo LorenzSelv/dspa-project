@@ -185,6 +185,7 @@ impl DynamicStateSingle {
         next_notification_time: u64,
     ) {
         let delta_opt = match rec_update {
+            // person A likes post P created by person B => suggest B to A
             RecommendationUpdate::Like {
                 timestamp: _,
                 from_person_id: fpid,
@@ -282,9 +283,6 @@ impl DynamicStateSingle {
         static_state: &StaticStateSingle,
         notification_timestamp: u64,
     ) -> Vec<Score> {
-        // TODO use timestamp (of the notification) to discard events older than 4 hours
-        // either keep recommendation events and discard those older that timestamp - 4 hours
-        // or .. ?
         assert!(notification_timestamp >= self.last_notification);
 
         // discard old windows
