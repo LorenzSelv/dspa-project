@@ -86,6 +86,8 @@ pub enum RecommendationUpdate {
     Reply { timestamp: u64, from_person_id: u64, to_person_id: u64 },
 }
 
+impl abomonation::Abomonation for RecommendationUpdate {}
+
 impl Timestamp for RecommendationUpdate {
     fn timestamp(&self) -> u64 {
         match self {

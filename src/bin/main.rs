@@ -106,7 +106,15 @@ fn main() {
             stat_updates.active_posts(widx).inspect(move |stats| inspect_stats(widx1, stats));
 
             let widx2 = widx.clone();
+            // Updates are currently partitioned by post id. We should either:
+            // 1) re-partition by target_person (the person the event is meaningful to),
+            //    each worker should receive only events that are meaningful for one of
+            //    the people it is responsible for
+            // 2) broadcast all events, they will be ignored by the `friend_rec` operator
+            //    if the target_person is not among the ones it is responsible for
+            // Going with (2) for now
             rec_updates
+                .broadcast()
                 .friend_recommendations(&recommendation_pids[start_pid..end_pid].to_vec())
                 .inspect(move |rec| inspect_rec(widx2, rec));
         });
