@@ -240,16 +240,13 @@ impl PostTreesState {
             };
             self.pending_rec_updates.push(update)
         } else if let Event::Comment(comment_event) = event {
-            // TODO emit also normal comments (not only replies)
-            if comment_event.reply_to_post_id != None {
-                let to_person_id = self.root_of.get(&ID::Post(root_post_id)).unwrap().person_id;
-                let update = RecommendationUpdate::Comment {
-                    timestamp:      event.timestamp(),
-                    from_person_id: event.person_id(),
-                    to_person_id:   to_person_id,
-                };
-                self.pending_rec_updates.push(update)
-            }
+            let to_person_id = self.root_of.get(&ID::Post(root_post_id)).unwrap().person_id;
+            let update = RecommendationUpdate::Comment {
+                timestamp:      event.timestamp(),
+                from_person_id: event.person_id(),
+                to_person_id:   to_person_id,
+            };
+            self.pending_rec_updates.push(update)
         } else if let Event::Like(_) = event {
             let to_person_id = self.root_of.get(&ID::Post(root_post_id)).unwrap().person_id;
             let update = RecommendationUpdate::Like {

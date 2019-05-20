@@ -402,7 +402,6 @@ impl StaticStateSingle {
     }
 }
 
-// TODO extend to multiple people
 pub fn dump_recommendations(pid: u64, scores: &Vec<Score>) {
     let spaces = " ".repeat(4);
     println!("{}--- recommendations for {}", spaces, pid);
