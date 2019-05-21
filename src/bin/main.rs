@@ -117,6 +117,10 @@ fn main() {
                 .broadcast()
                 .friend_recommendations(&recommendation_pids[start_pid..end_pid].to_vec())
                 .inspect(move |rec| inspect_rec(widx2, rec));
+
+            event_stream
+                .spam_detection(widx_TODO)
+                .inspect(HELLO WORLD);
         });
     })
     .expect("Timely computation failed somehow");
