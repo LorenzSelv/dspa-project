@@ -31,6 +31,7 @@ use dspa::operators::friend_recommendations::dump_recommendations;
 use dspa::operators::friend_recommendations::FriendRecommendations;
 use dspa::operators::friend_recommendations::Score;
 use dspa::operators::post_trees::PostTrees;
+use dspa::operators::spam_detection::SpamDetection;
 
 lazy_static! {
     static ref SETTINGS: config::Config = {
@@ -52,6 +53,12 @@ fn inspect_rec(widx: usize, rec: &HashMap<u64, Vec<Score>>) {
     for (pid, rec_single) in rec.iter() {
         dump_recommendations(*pid, rec_single);
     }
+}
+
+fn inspect_spam(widx: usize, spam_pid: &u64)
+{
+    println!("{} {} {}", format!("[W{}]", widx).bold().green(), "spam inspect".bold().green(),
+             spam_pid);
 }
 
 fn get_event_stream<G>(scope: &mut G, widx: usize, num_workers: usize) -> Stream<G, Event>
@@ -119,8 +126,8 @@ fn main() {
                 .inspect(move |rec| inspect_rec(widx2, rec));
 
             event_stream
-                .spam_detection(widx_TODO)
-                .inspect(HELLO WORLD);
+                .spam_detection(widx)
+                .inspect(move |spam| inspect_spam(widx2, spam));
         });
     })
     .expect("Timely computation failed somehow");

@@ -1,15 +1,18 @@
-use std::cmp::max;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
+use timely::dataflow::channels::pact::Pipeline;
+use timely::dataflow::operators::*;
 use timely::dataflow::{Scope, Stream};
+
+use crate::event::{Event};
 
 use colored::*;
 
-const BURST_WINDOW: u64 = 60; // consider events only for the last 60 seconds 
-const BURST_THRESHOLD: u64 = 100; // trigger if a person authors >= 100 posts/comments in the last window 
+const BURST_WINDOW: u64 = 60; // consider events only for the last 60 seconds
+const BURST_THRESHOLD: u64 = 1; // trigger if a person authors >= 100 posts/comments in the last window
 
 pub trait SpamDetection<G: Scope> {
-    fn spam_detection(&self, worker_id: usize) -> Stream<G, u64>>;
+    fn spam_detection(&self, worker_id: usize) -> Stream<G, u64>;
 }
 
 /// Given a stream of events, emit the person ids of the
@@ -40,19 +43,19 @@ pub trait SpamDetection<G: Scope> {
 ///
 impl<G: Scope<Timestamp = u64>> SpamDetection<G> for Stream<G, Event> {
 
-    fn spam_detection(&self, worker_id: usize) -> Stream<G, HashMap<u64, u64>> {
+    fn spam_detection(&self, worker_id: usize) -> Stream<G, u64> {
 
         let mut state = SpamDetectionState::new(worker_id);
 
-	self.unary(Pipeline, "SpamDetection", move |_, _| move |input, output| {
+	      self.unary(Pipeline, "SpamDetection", move |_,_| move |input, output| {
 
             let mut buf = Vec::new();
 
-            input.for_each(move |time, data| {
+            input.for_each(|time, data| {
                 data.swap(&mut buf);
 
                 for event in buf.drain(..) {
-                    state.update(event, *time.time());
+                    state.update(&event, *time.time());
                 }
 
                 let mut session = output.session(&time);
@@ -67,11 +70,11 @@ impl<G: Scope<Timestamp = u64>> SpamDetection<G> for Stream<G, Event> {
 #[derive(Clone)]
 struct SpamDetectionState {
     worker_id: usize,
-    
-    // list of events created by a person in the last BURST_WINDOW
-    person_to_events: HashMap<u64, VecDeque<PostEvent>>,
 
-    // ip_to_events: HashMap<String, VecDeque<PostEvent>>,
+    // list of events created by a person in the last BURST_WINDOW
+    person_to_events: HashMap<u64, VecDeque<Event>>,
+
+    // ip_to_events: HashMap<String, VecDeque<Event>>,
 
     // TODO unique words feature
 
@@ -83,13 +86,14 @@ struct SpamDetectionState {
 impl SpamDetectionState {
     fn new(worker_id: usize) -> SpamDetectionState {
         SpamDetectionState {
-            worker_id:      worker_id,
-            person_to_events: HashMap::new(),
-            new_spam_person_ids: Vec::new(),
-            all_spam_person_ids: HashSet::new(),
+            worker_id:             worker_id,
+            person_to_events:      HashMap::new(),
+            new_spam_person_ids:   Vec::new(),
+            all_spam_person_ids:   HashSet::new(),
         }
     }
 
+    #[allow(dead_code)]
     fn dump(&self) {
         println!(
             "{}",
@@ -103,7 +107,7 @@ impl SpamDetectionState {
         println!("    person_to_events -- {:?}", self.person_to_events);
     }
 
-    fn update(&mut self, event: &PostEvent, timestamp: u64) {
+    fn update(&mut self, event: &Event, timestamp: u64) {
 
         if let Event::Like(_) = &event {
             return; // ignore likes
@@ -111,16 +115,16 @@ impl SpamDetectionState {
 
         let pid = event.person_id();
 
-        *self.person_to_events
+        self.person_to_events
             .entry(pid)
             .or_insert(VecDeque::new())
-            .push_back(event);
+            .push_back(event.clone());
 
         // remove events that went out of the window
         let mut discard_until = 0;
-        for event in &self.person_to_events.get(&pid).unwrap() {
+        for event in self.person_to_events.get(&pid).unwrap() {
             // check if event is "old"
-            if event.timestamp < timestamp - BURST_WINDOW {
+            if event.timestamp() < timestamp - BURST_WINDOW {
                 discard_until += 1
             }
         }
@@ -133,11 +137,11 @@ impl SpamDetectionState {
 
         // check if number of event in window is above threshold
         // and not yet marked as spam
-        if self.person_to_events.get(&pid).len() > BURST_THRESHOLD &&
-           !self.all_spam_person_ids.contain(pid)
+        if self.person_to_events.get(&pid).unwrap().len() > BURST_THRESHOLD as usize &&
+           !self.all_spam_person_ids.contains(&pid)
         {
-            self.new_spam_person_ids.push_back(pid);
-            self.all_spam_person_ids.add(pid);
+            self.new_spam_person_ids.push(pid);
+            self.all_spam_person_ids.insert(pid);
         }
     }
 }
