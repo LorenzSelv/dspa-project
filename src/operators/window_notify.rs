@@ -47,20 +47,16 @@ impl<G: Scope<Timestamp = u64>, D: Data + Timestamp + Debug, S: Clone + 'static,
 
         self.unary_notify(Pipeline, op_name, None, move |input, output, notificator| {
             input.for_each(|time, data| {
-                println!("time is {}", *time.time());
                 let mut buf = Vec::<D>::new();
                 data.swap(&mut buf);
 
                 if first_notification {
-                    println!("buf is {:?}", buf);
+                    // println!("buf is {:?}", buf);
                     next_notification_time =
                         buf.iter().map(|el| el.timestamp()).min().expect("wtf") + window_size;
                     first_notification = false;
                     // Set up the first notification.
-                    println!("next_notification is {}", next_notification_time);
-                    println!("current time is {}", *time.time());
                     notificator.notify_at(time.delayed(&next_notification_time));
-                    println!("here");
                 }
 
                 for el in buf.drain(..) {

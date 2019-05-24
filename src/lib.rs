@@ -10,3 +10,4 @@ pub mod db;
 pub mod event;
 pub mod kafka;
 pub mod operators;
+pub mod percentile;

@@ -30,8 +30,9 @@ use dspa::operators::active_posts::{dump_stats, Stats};
 use dspa::operators::friend_recommendations::dump_recommendations;
 use dspa::operators::friend_recommendations::FriendRecommendations;
 use dspa::operators::friend_recommendations::Score;
+use dspa::operators::post_freq::PostFrequency;
 use dspa::operators::post_trees::PostTrees;
-use dspa::operators::spam_detection::SpamDetection;
+use dspa::operators::unique_words::UniqueWords;
 
 lazy_static! {
     static ref SETTINGS: config::Config = {
@@ -55,10 +56,13 @@ fn inspect_rec(widx: usize, rec: &HashMap<u64, Vec<Score>>) {
     }
 }
 
-fn inspect_spam(widx: usize, spam_pid: &u64)
-{
-    println!("{} {} {}", format!("[W{}]", widx).bold().green(), "spam inspect".bold().green(),
-             spam_pid);
+fn inspect_spam(widx: usize, spam_pid: &u64) {
+    println!(
+        "{} {} {}",
+        format!("[W{}]", widx).bold().green(),
+        "spam inspect".bold().green(),
+        spam_pid
+    );
 }
 
 fn get_event_stream<G>(scope: &mut G, widx: usize, num_workers: usize) -> Stream<G, Event>
@@ -74,6 +78,11 @@ where
         Event::Comment(c) => c.reply_to_comment_id != None,
         _ => false,
     });
+
+    let events_by_pid = events.exchange(|event| event.person_id());
+
+    events_by_pid.post_frequency(widx).inspect(move |spam| inspect_spam(widx, spam));
+    events_by_pid.unique_words(widx).inspect(move |spam| inspect_spam(widx, spam));
 
     let single = single.exchange(|event| event.target_id());
     let broad = broad.broadcast();
@@ -124,10 +133,6 @@ fn main() {
                 .broadcast()
                 .friend_recommendations(&recommendation_pids[start_pid..end_pid].to_vec())
                 .inspect(move |rec| inspect_rec(widx2, rec));
-
-            event_stream
-                .spam_detection(widx)
-                .inspect(move |spam| inspect_spam(widx2, spam));
         });
     })
     .expect("Timely computation failed somehow");

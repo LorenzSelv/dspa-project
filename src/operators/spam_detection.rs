@@ -1,16 +1,16 @@
-use std::collections::{HashMap, HashSet, BTreeMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Bound::{Excluded, Included};
 
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::*;
 use timely::dataflow::{Scope, Stream};
 
-use crate::event::{Event};
+use crate::event::Event;
 
 use colored::*;
 
 const BURST_WINDOW: u64 = 120; // consider events only for the last 1 minute
-// const BURST_THRESHOLD: u64 = 100; // trigger if a person authors >= 100 posts/comments in the last window
+                               // const BURST_THRESHOLD: u64 = 100; // trigger if a person authors >= 100 posts/comments in the last window
 
 pub trait SpamDetection<G: Scope> {
     fn spam_detection(&self, worker_id: usize) -> Stream<G, u64>;
@@ -50,27 +50,26 @@ pub trait SpamDetection<G: Scope> {
 ///
 
 impl<G: Scope<Timestamp = u64>> SpamDetection<G> for Stream<G, Event> {
-
     fn spam_detection(&self, worker_id: usize) -> Stream<G, u64> {
-
         let mut state = SpamDetectionState::new(worker_id);
 
-	      self.unary(Pipeline, "SpamDetection", move |_,_| move |input, output| {
+        self.unary(Pipeline, "SpamDetection", move |_, _| {
+            move |input, output| {
+                let mut buf = Vec::new();
 
-            let mut buf = Vec::new();
+                input.for_each(|time, data| {
+                    data.swap(&mut buf);
 
-            input.for_each(|time, data| {
-                data.swap(&mut buf);
+                    for event in buf.drain(..) {
+                        state.update(&event, *time.time());
+                    }
 
-                for event in buf.drain(..) {
-                    state.update(&event, *time.time());
-                }
-
-                let mut session = output.session(&time);
-                for id in state.new_spam_person_ids.drain(..) {
-                    session.give(id);
-                }
-            });
+                    let mut session = output.session(&time);
+                    for id in state.new_spam_person_ids.drain(..) {
+                        session.give(id);
+                    }
+                });
+            }
         })
     }
 }
@@ -106,7 +105,8 @@ impl SpamDetectionState {
             all_spam_person_ids:   HashSet::new(),
             threshold_burst:       100_u64,
             threshold_unique:      0.50,
-            threshold_repeated:    50_u64}
+            threshold_repeated:    50_u64,
+        }
     }
 
     #[allow(dead_code)]
@@ -124,7 +124,6 @@ impl SpamDetectionState {
     }
 
     fn update(&mut self, event: &Event, timestamp: u64) {
-
         if let Event::Like(_) = &event {
             return; // ignore likes
         }
@@ -143,8 +142,9 @@ impl SpamDetectionState {
 
         // see if there is a window which spans last 60 seconds.
         if let Some((_, count)) =
-            map.range_mut((Excluded(timestamp - 60), Included(timestamp))).next_back() {
-            *count+=1;
+            map.range_mut((Excluded(timestamp - 60), Included(timestamp))).next_back()
+        {
+            *count += 1;
         } else {
             map.insert(timestamp, 1);
         }
@@ -158,13 +158,11 @@ impl SpamDetectionState {
 
         for time in to_remove.iter() {
             map.remove(time);
-
         }
 
         // check if number of event in window is above threshold
         // and not yet marked as spam
-        if *total_count > self.threshold_burst && !self.all_spam_person_ids.contains(&pid)
-        {
+        if *total_count > self.threshold_burst && !self.all_spam_person_ids.contains(&pid) {
             self.new_spam_person_ids.push(pid);
             self.all_spam_person_ids.insert(pid);
         }
@@ -205,4 +203,3 @@ impl SpamDetectionState {
         }
     }
 }
-
