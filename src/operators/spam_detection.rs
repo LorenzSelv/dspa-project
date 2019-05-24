@@ -8,8 +8,8 @@ use crate::event::{Event};
 
 use colored::*;
 
-const BURST_WINDOW: u64 = 60; // consider events only for the last 60 seconds
-const BURST_THRESHOLD: u64 = 1; // trigger if a person authors >= 100 posts/comments in the last window
+const BURST_WINDOW: u64 = 60; // consider events only for the last 1 minute
+const BURST_THRESHOLD: u64 = 100; // trigger if a person authors >= 100 posts/comments in the last window
 
 pub trait SpamDetection<G: Scope> {
     fn spam_detection(&self, worker_id: usize) -> Stream<G, u64>;
@@ -22,6 +22,7 @@ pub trait SpamDetection<G: Scope> {
 /// 1) number of posts/comments created in the last minute by a person:
 ///    bursts of posts/comments (probably originated by a bot) will be detected
 ///    likes are ignored
+///
 ///
 /// 2) same but for IP addresses
 ///    TODO we need to use a different threshold
@@ -81,6 +82,10 @@ struct SpamDetectionState {
     // list of person ids marked as spam; will be drained after every batch
     new_spam_person_ids: Vec<u64>,
     all_spam_person_ids: HashSet<u64>,
+
+    threshold_burst:    u64,
+    threshold_unique:   f32,
+    threshold_repeated: u64,
 }
 
 impl SpamDetectionState {
@@ -90,7 +95,9 @@ impl SpamDetectionState {
             person_to_events:      HashMap::new(),
             new_spam_person_ids:   Vec::new(),
             all_spam_person_ids:   HashSet::new(),
-        }
+            threshold_burst:       100_u64,
+            threshold_unique:      0.50,
+            threshold_repeated:    50_u64}
     }
 
     #[allow(dead_code)]
@@ -113,6 +120,11 @@ impl SpamDetectionState {
             return; // ignore likes
         }
 
+        self.check_frequency(event, timestamp);
+        self.check_unique(event);
+    }
+
+    fn check_frequency(&mut self, event: &Event, timestamp: u64) {
         let pid = event.person_id();
 
         self.person_to_events
@@ -138,10 +150,46 @@ impl SpamDetectionState {
         // check if number of event in window is above threshold
         // and not yet marked as spam
         if self.person_to_events.get(&pid).unwrap().len() > BURST_THRESHOLD as usize &&
-           !self.all_spam_person_ids.contains(&pid)
+            !self.all_spam_person_ids.contains(&pid)
         {
             self.new_spam_person_ids.push(pid);
             self.all_spam_person_ids.insert(pid);
         }
     }
+
+    fn check_unique(&mut self, event: &Event) {
+        let mut content = "";
+        match event {
+            Event::Post(post) => {
+                content = &post.content;
+            }
+            Event::Comment(comment) => {
+                content = &comment.content;
+            }
+            Event::Like(_) => {}
+        }
+
+        // parse content
+        let mut v: Vec<String> = content
+            .split(|c: char| c.is_whitespace() || c.is_ascii_punctuation())
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        let count: usize = content.len();
+        let mut unique: HashSet<String> = HashSet::new();
+
+        for s in v.drain(..) {
+            unique.insert(s);
+        }
+
+        let unique_ratio: f32 = unique.len() as f32 / count as f32;
+        let pid = event.person_id();
+
+        if unique_ratio < self.threshold_unique && !self.all_spam_person_ids.contains(&pid) {
+            self.new_spam_person_ids.push(pid);
+            self.all_spam_person_ids.insert(pid);
+        }
+    }
 }
+
