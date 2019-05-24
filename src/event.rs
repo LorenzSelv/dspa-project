@@ -179,7 +179,7 @@ pub struct PostEvent {
     pub location_ip:   String,
     pub browser_used:  String,
     pub language:      Option<String>,
-    pub content:       Option<String>,
+    pub content:       String,
     pub tags:          Option<String>, // TODO should be Vec<u64>> #[serde(flatten)]
     pub forum_id:      u64,
     pub place_id:      u64,
