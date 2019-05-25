@@ -337,8 +337,6 @@ impl DynamicStateSingle {
             }
         }
 
-        println!("returning {:?}", top_scores);
-
         top_scores.into_sorted_vec()
     }
 }
