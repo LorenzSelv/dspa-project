@@ -239,7 +239,7 @@ impl PostTreesState {
                 tags:      post.tags.clone(),
             };
             self.pending_rec_updates.push(update)
-        } else if let Event::Comment(comment_event) = event {
+        } else if let Event::Comment(_) = event {
             let to_person_id = self.root_of.get(&ID::Post(root_post_id)).unwrap().person_id;
             let update = RecommendationUpdate::Comment {
                 timestamp:      event.timestamp(),
@@ -258,6 +258,7 @@ impl PostTreesState {
         }
     }
 
+    #[allow(dead_code)]
     fn dump(&self) {
         println!(
             "{}",

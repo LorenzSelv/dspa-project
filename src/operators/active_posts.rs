@@ -88,6 +88,7 @@ impl ActivePostsState {
         }
     }
 
+    #[allow(dead_code)]
     fn dump(&self) {
         println!(
             "{}",

@@ -1,10 +1,6 @@
 use crate::event::Event;
 use crate::percentile::Percentile;
-use std::cmp::max;
-
 use std::collections::HashSet;
-
-// use colored::*;
 
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::*;
