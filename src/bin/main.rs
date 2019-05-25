@@ -151,12 +151,14 @@ fn main() {
             let events_by_pid = event_stream.exchange(|event| event.person_id());
 
             // compute post_frequency to detect burst of posts
-            let widx3 = widx.clone();
-            events_by_pid.post_frequency(widx).inspect(move |spam| inspect_spam(widx3, spam));
+            let spam1 = events_by_pid.post_frequency(widx);
 
             // compute unique words metric to detect unusual behavior
-            let widx4 = widx.clone();
-            events_by_pid.unique_words(widx).inspect(move |spam| inspect_spam(widx4, spam));
+            let spam2 = events_by_pid.unique_words(widx);
+
+            // emit person ids marked as spammers
+            let widx3 = widx.clone();
+            spam1.concat(&spam2).inspect(move |spam| inspect_spam(widx3, spam));
         });
     })
     .expect("Timely computation failed somehow");
