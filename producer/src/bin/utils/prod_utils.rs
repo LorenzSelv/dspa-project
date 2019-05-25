@@ -47,7 +47,8 @@ pub fn read_event(reader: &mut BufReader<File>) -> Option<Event> {
     match reader.read_line(&mut record) {
         Err(err) => { println!("ERR {}", err); None },
         Ok(0)    => { None },
-        Ok(_)    => Some(Event::from_record(record))
+        Ok(1)    => { read_event(reader) },
+        Ok(_)    => { Some(Event::from_record(record)) }
     }
 }
 
