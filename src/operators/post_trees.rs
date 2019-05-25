@@ -42,7 +42,7 @@ impl<G: Scope<Timestamp = u64>> PostTrees<G> for Stream<G, Event> {
 
                     // update the post trees
                     for event in buf.drain(..) {
-                        println!("{} {}", "+".bold().yellow(), event.to_string().bold().yellow());
+                        // println!("{} {}", "+".bold().yellow(), event.to_string().bold().yellow());
                         let (opt_target_id, opt_root_post_id) = state.update_post_tree(&event);
 
                         // check if the root post_id has been already received
@@ -187,14 +187,12 @@ impl PostTreesState {
     }
 
     fn clean_ooo_events(&mut self, timestamp: u64) {
-        println!("before clean {:?}", self.ooo_events);
         self.ooo_events = self
             .ooo_events
             .clone()
             .into_iter()
             .filter(|(_, events)| events.iter().all(|event| event.timestamp() > timestamp))
             .collect::<HashMap<_, _>>();
-        println!("after clean {:?}", self.ooo_events);
     }
 
     /// generate all output updates for the current event

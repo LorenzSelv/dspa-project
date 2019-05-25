@@ -40,8 +40,22 @@ lazy_static! {
         s.merge(config::File::with_name("Settings")).unwrap();
         s
     };
-    static ref RECOMMENDATION_CLIENTS: String =
-        SETTINGS.get::<String>("RECOMMENDATION_CLIENTS").unwrap();
+    static ref RECOMMENDATION_PIDS: Vec<u64> = SETTINGS
+        .get::<String>("RECOMMENDATION_CLIENTS")
+        .unwrap()
+        .split(',')
+        .map(|s| s.trim())
+        .map(|s| s.parse().unwrap())
+        .collect();
+}
+
+/// round-robin assign the person ids to workers
+fn get_my_rec_pids(widx: usize, num_workers: usize) -> Vec<u64> {
+    RECOMMENDATION_PIDS
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &pid)| if i % num_workers == widx { Some(pid) } else { None })
+        .collect::<Vec<u64>>()
 }
 
 fn inspect_stats(widx: usize, stats: &HashMap<u64, Stats>) {
@@ -65,24 +79,26 @@ fn inspect_spam(widx: usize, spam_pid: &u64) {
     );
 }
 
+/// read event stream from kafka and deserialize string records into events
 fn get_event_stream<G>(scope: &mut G, widx: usize, num_workers: usize) -> Stream<G, Event>
 where
     G: Scope<Timestamp = u64>,
 {
-    // read stream from kafka and deserialize string records into events
-    let events = kafka::consumer::string_stream(scope, "events", widx, num_workers)
-        .map(|record: String| event::deserialize(record));
+    kafka::consumer::string_stream(scope, "events", widx, num_workers)
+        .map(|record: String| event::deserialize(record))
+}
 
-    // reply to comments should be broadcasted to all workers
+/// partition events by the post_id they refer to
+/// in case of replies, we don't know the root post_id at this stage
+/// => broadcast them
+fn broadcast_replies<G>(events: &Stream<G, Event>) -> Stream<G, Event>
+where
+    G: Scope<Timestamp = u64>,
+{
     let (single, broad) = events.branch(|_, event| match event {
         Event::Comment(c) => c.reply_to_comment_id != None,
         _ => false,
     });
-
-    let events_by_pid = events.exchange(|event| event.person_id());
-
-    events_by_pid.post_frequency(widx).inspect(move |spam| inspect_spam(widx, spam));
-    events_by_pid.unique_words(widx).inspect(move |spam| inspect_spam(widx, spam));
 
     let single = single.exchange(|event| event.target_id());
     let broad = broad.broadcast();
@@ -95,44 +111,52 @@ fn main() {
         let widx = worker.index();
         let num_workers = worker.peers();
 
-        let recommendation_pids: Vec<u64> = RECOMMENDATION_CLIENTS
-            .split(',')
-            .map(|s| s.trim())
-            .map(|s| s.parse().unwrap())
-            .collect();
-
-        assert!(recommendation_pids.len() == 10);
-
-        let num_pids: usize = 10 / num_workers;
-        let start_pid: usize = widx * num_pids;
-        let end_pid: usize = {
-            if widx == (num_workers - 1) {
-                10
-            } else {
-                start_pid + num_pids
-            }
-        };
-
         worker.dataflow::<u64, _, _>(move |scope| {
+            // ===========================================
+            // read kakfa stream
             let event_stream = get_event_stream(scope, widx, num_workers);
 
-            let (stat_updates, rec_updates) = event_stream.post_trees(widx);
+            event_stream.inspect(move |event: &Event| {
+                println!("{} {}", "+".bold().yellow(), event.to_string().bold().yellow())
+            });
 
+            // compute and store post_trees,
+            // emit stats and recommendation updates
+            let (stat_updates, rec_updates) = broadcast_replies(&event_stream).post_trees(widx);
+
+            // ===========================================
+            // QUERY 1: compute active posts given the stats updates
             let widx1 = widx.clone();
             stat_updates.active_posts(widx).inspect(move |stats| inspect_stats(widx1, stats));
 
+            // ===========================================
+            // QUERY 2: compute recommendations posts given the rec updates
             let widx2 = widx.clone();
-            // Updates are currently partitioned by post id. We should either:
-            // 1) re-partition by target_person (the person the event is meaningful to),
-            //    each worker should receive only events that are meaningful for one of
-            //    the people it is responsible for
-            // 2) broadcast all events, they will be ignored by the `friend_rec` operator
-            //    if the target_person is not among the ones it is responsible for
-            // Going with (2) for now
             rec_updates
+                // Updates are currently partitioned by post id. We should either:
+                // 1) re-partition by target_person (the person the event is meaningful to),
+                //    each worker should receive only events that are meaningful for one of
+                //    the people it is responsible for
+                // 2) broadcast all events, they will be ignored by the `friend_rec` operator
+                //    if the target_person is not among the ones it is responsible for
+                // Going with (2) for now
                 .broadcast()
-                .friend_recommendations(&recommendation_pids[start_pid..end_pid].to_vec())
+                .friend_recommendations(&get_my_rec_pids(widx, num_workers))
                 .inspect(move |rec| inspect_rec(widx2, rec));
+
+            // ===========================================
+            // QUERY 3: detect spam from the raw event stream (we don't need post_trees for this)
+
+            // partition the stream by person_id that originated the event
+            let events_by_pid = event_stream.exchange(|event| event.person_id());
+
+            // compute post_frequency to detect burst of posts
+            let widx3 = widx.clone();
+            events_by_pid.post_frequency(widx).inspect(move |spam| inspect_spam(widx3, spam));
+
+            // compute unique words metric to detect unusual behavior
+            let widx4 = widx.clone();
+            events_by_pid.unique_words(widx).inspect(move |spam| inspect_spam(widx4, spam));
         });
     })
     .expect("Timely computation failed somehow");
