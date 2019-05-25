@@ -6,8 +6,7 @@ use std::ops::Bound::{Excluded, Included};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 const BURST_WINDOW: u64 = 120; // consider events only for the last 1 minute
-
-// use colored::*;
+const MAX_FREQ: u64 = 100;
 
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::*;
@@ -59,7 +58,13 @@ impl PostFrequencyState {
     fn new(worker_id: usize) -> PostFrequencyState {
         PostFrequencyState {
             worker_id:             worker_id,
-            percentile:            Percentile::new(0.5, 95, 10, 0_f64, 1_f64),
+            percentile:            Percentile::new(
+                0.2,             /* initial threshold */
+                5,               /* 5 percentile */
+                20,              /* number of buckets */
+                0_f64,           /* min value */
+                MAX_FREQ as f64, /* max value */
+            ),
             person_to_event_maps:  HashMap::new(),
             person_to_event_count: HashMap::new(),
             new_spam_person_ids:   Vec::new(),
@@ -99,16 +104,17 @@ impl PostFrequencyState {
         }
 
         // we have new total. Add the inverse to percentile struct
-        let new_ratio: f64 = 1_f64 / *total_count as f64;
+        let new_entry: f64 =
+            if *total_count > MAX_FREQ { 0_f64 } else { (MAX_FREQ - *total_count) as f64 };
 
-        self.percentile.add(new_ratio);
+        self.percentile.add(new_entry);
         if *total_count > 1 {
-            self.percentile.remove(1_f64 / (*total_count - 1) as f64);
+            self.percentile.remove(new_entry + 1_f64);
         }
 
         // check if number of event in window is above threshold
         // and not yet marked as spam
-        if new_ratio <= self.percentile.threshold() && !self.all_spam_person_ids.contains(&pid) {
+        if new_entry <= self.percentile.threshold() && !self.all_spam_person_ids.contains(&pid) {
             self.new_spam_person_ids.push(pid);
             self.all_spam_person_ids.insert(pid);
         }
