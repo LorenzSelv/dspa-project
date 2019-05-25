@@ -11,7 +11,10 @@ extern crate rdkafka;
 extern crate serde;
 extern crate serde_derive;
 
-use std::collections::HashMap;
+extern crate clap;
+
+use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
 
 use colored::*;
 
@@ -107,11 +110,21 @@ where
 }
 
 fn main() {
-    timely::execute_from_args(std::env::args(), |worker| {
+    let matches = clap::App::new("dspa-project")
+                        .arg_from_usage("-q --queries=<QUERY-ID>... 'Comma separated list of queries to run (e.g. -q 1,2), default is all queries'")
+                        .arg_from_usage("-w --workers=<NUM-WORKERS> 'Comma separated list of queries to run (e.g. -w 2), default is 1'")
+                        .get_matches();
+
+    use clap::{value_t, values_t};
+    let queries: HashSet<usize> = HashSet::from_iter(values_t!(matches, "queries", usize).unwrap_or_else(|e| e.exit()));
+    let workers = value_t!(matches, "workers", usize).unwrap_or_else(|e| e.exit());
+
+    let (builder, other) = timely::Configuration::Process(workers).try_build().unwrap();
+    timely::execute::execute_from(builder, other, move |worker| {
         let widx = worker.index();
         let num_workers = worker.peers();
 
-        worker.dataflow::<u64, _, _>(move |scope| {
+        worker.dataflow::<u64, _, _>(|scope| {
             // ===========================================
             // read kakfa stream
             let event_stream = get_event_stream(scope, widx, num_workers);
@@ -126,39 +139,44 @@ fn main() {
 
             // ===========================================
             // QUERY 1: compute active posts given the stats updates
-            let widx1 = widx.clone();
-            stat_updates.active_posts(widx).inspect(move |stats| inspect_stats(widx1, stats));
+            if queries.contains(&1) {
+                let widx1 = widx.clone();
+                stat_updates.active_posts(widx).inspect(move |stats| inspect_stats(widx1, stats));
+            }
 
             // ===========================================
             // QUERY 2: compute recommendations posts given the rec updates
-            let widx2 = widx.clone();
-            rec_updates
-                // Updates are currently partitioned by post id. We should either:
-                // 1) re-partition by target_person (the person the event is meaningful to),
-                //    each worker should receive only events that are meaningful for one of
-                //    the people it is responsible for
-                // 2) broadcast all events, they will be ignored by the `friend_rec` operator
-                //    if the target_person is not among the ones it is responsible for
-                // Going with (2) for now
-                .broadcast()
-                .friend_recommendations(&get_my_rec_pids(widx, num_workers))
-                .inspect(move |rec| inspect_rec(widx2, rec));
+            if queries.contains(&2) {
+                let widx2 = widx.clone();
+                rec_updates
+                    // Updates are currently partitioned by post id. We should either:
+                    // 1) re-partition by target_person (the person the event is meaningful to),
+                    //    each worker should receive only events that are meaningful for one of
+                    //    the people it is responsible for
+                    // 2) broadcast all events, they will be ignored by the `friend_rec` operator
+                    //    if the target_person is not among the ones it is responsible for
+                    // Going with (2) for now
+                    .broadcast()
+                    .friend_recommendations(&get_my_rec_pids(widx, num_workers))
+                    .inspect(move |rec| inspect_rec(widx2, rec));
+            }
 
             // ===========================================
             // QUERY 3: detect spam from the raw event stream (we don't need post_trees for this)
+            if queries.contains(&3) {
+                // partition the stream by person_id that originated the event
+                let events_by_pid = event_stream.exchange(|event| event.person_id());
 
-            // partition the stream by person_id that originated the event
-            let events_by_pid = event_stream.exchange(|event| event.person_id());
+                // compute post_frequency to detect burst of posts
+                let spam1 = events_by_pid.post_frequency(widx);
 
-            // compute post_frequency to detect burst of posts
-            let spam1 = events_by_pid.post_frequency(widx);
+                // compute unique words metric to detect unusual behavior
+                let spam2 = events_by_pid.unique_words(widx);
 
-            // compute unique words metric to detect unusual behavior
-            let spam2 = events_by_pid.unique_words(widx);
-
-            // emit person ids marked as spammers
-            let widx3 = widx.clone();
-            spam1.concat(&spam2).inspect(move |spam| inspect_spam(widx3, spam));
+                // emit person ids marked as spammers
+                let widx3 = widx.clone();
+                spam1.concat(&spam2).inspect(move |spam| inspect_spam(widx3, spam));
+            }
         });
     })
     .expect("Timely computation failed somehow");
