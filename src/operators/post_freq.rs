@@ -5,7 +5,8 @@ use std::ops::Bound::{Excluded, Included};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-const BURST_WINDOW: u64 = 120; // consider events only for the last 1 minute
+const BURST_WINDOW: u64 = 60; // consider events only for the last 1 minute
+const BUCKET_WIDTH: u64 = 10; // split this window info buckets of 10s.
 const MAX_FREQ: u64 = 100;
 
 use timely::dataflow::channels::pact::Pipeline;
@@ -46,7 +47,7 @@ struct PostFrequencyState {
     worker_id: usize,
 
     // list of events created by a person in the last BURST_WINDOW
-    person_to_event_maps:  HashMap<u64, BTreeMap<u64, u64>>,
+    person_to_event_maps:  HashMap<u64,BTreeMap<u64, u64>>,
     person_to_event_count: HashMap<u64, u64>,
 
     percentile:          Percentile,
@@ -59,7 +60,7 @@ impl PostFrequencyState {
         PostFrequencyState {
             worker_id:             worker_id,
             percentile:            Percentile::new(
-                0.2,             /* initial threshold */
+                (MAX_FREQ - 10) as f64, /* initial threshold and upper_bound */
                 5,               /* 5 percentile */
                 20,              /* number of buckets */
                 0_f64,           /* min value */
@@ -76,23 +77,23 @@ impl PostFrequencyState {
         if timestamp == 0 {
             return;
         }
+
         let pid = event.person_id();
 
         let total_count = self.person_to_event_count.entry(pid).or_insert(0);
         *total_count += 1;
 
-        let map = self.person_to_event_maps.entry(pid).or_insert(BTreeMap::<u64, u64>::new());
+        let map = self.person_to_event_maps.entry(pid).or_insert(BTreeMap::new());
 
-        // see if there is a window which spans last 60 seconds.
+        // see if there is a bucket which spans last BUCKET_WIDTH seconds. If not, add.
         if let Some((_, count)) =
-            map.range_mut((Excluded(timestamp - 60), Included(timestamp))).next_back()
-        {
-            *count += 1;
-        } else {
-            map.insert(timestamp, 1);
-        }
+            map.range_mut((Excluded(timestamp - BUCKET_WIDTH), Included(timestamp))).next_back() {
+                *count += 1;
+            } else {
+                map.insert(timestamp, 1);
+            }
 
-        // remove events that went out of date:
+        // remove event that went out of date:
         let mut to_remove: Vec<u64> = Vec::new();
         for (time, partial_count) in map.range((Included(0), Excluded(timestamp - BURST_WINDOW))) {
             *total_count -= partial_count;

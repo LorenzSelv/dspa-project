@@ -43,11 +43,6 @@ pub trait SpamDetection<G: Scope> {
 ///    P3: "aa ab ac ad ae af ag ah ... "       -- ratio=1 length="long"  => SPAM
 ///               ->now sure about the last one. It could just be a more formal text.
 ///
-///
-///  -----------------------------------------------------------------------------------
-///  1) Per-parition by user_id
-///  2) Make thresholds dynamic.
-///
 
 impl<G: Scope<Timestamp = u64>> SpamDetection<G> for Stream<G, Event> {
     fn spam_detection(&self, worker_id: usize) -> Stream<G, u64> {

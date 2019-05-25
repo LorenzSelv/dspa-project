@@ -8,14 +8,14 @@ pub struct Percentile {
     bucket_width:  f64,
     min:           f64,
     threshold_val: f64,
-    lower_bound:   f64,
+    upper_bound:   f64,
 }
 
 impl Percentile {
-    pub fn new(lower_bound: f64, perc: u64, bucket_len: usize, min: f64, max: f64) -> Percentile {
+    pub fn new(upper_bound: f64, perc: u64, bucket_len: usize, min: f64, max: f64) -> Percentile {
         Percentile {
-            threshold_val: lower_bound,
-            lower_bound:   lower_bound,
+            threshold_val: upper_bound,
+            upper_bound:   upper_bound,
             perc:          perc,
             buckets:       vec![0; bucket_len],
             min:           min,
@@ -53,17 +53,16 @@ impl Percentile {
         let perc_count: u64 = self.perc * self.total / 100;
         for val in self.buckets.iter() {
             count += val;
+            bucket_idx += 1_f64;
 
             if count > perc_count {
                 self.threshold_val = self.min + (bucket_idx * self.bucket_width);
-                if self.threshold_val < self.lower_bound {
-                    self.threshold_val = self.lower_bound;
+                if self.threshold_val > self.upper_bound {
+                    self.threshold_val = self.upper_bound;
                 }
                 // println!("NEW THRESHOLD!!!!! {}", self.threshold_val);
                 return;
             }
-
-            bucket_idx += 1_f64;
         }
     }
 }

@@ -81,7 +81,7 @@ fn main() {
     let mut prev_was_delayed = false;
 
     for event in event_stream {
-        let delta = 
+        let delta =
             if let Some(pt) = prev_timestamp {
                 assert!(event.timestamp >= pt);
                 (event.timestamp - pt) * 1000 / *SPEEDUP_FACTOR
