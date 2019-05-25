@@ -1,3 +1,25 @@
+# Docker
+
+### Build
+
+`sudo docker build -t dspa .`
+
+### Run
+
+With the 1k-users dataset:
+
+`sudo docker run -e DATASET="1k-users-sorted" -it dspa`
+
+To use the 10k-users dataset uncomment the lines at the bottom of the Dockerfile
+to download it, rebuild and run:
+
+`sudo docker run -e DATASET="10k-users-sorted" -it dspa`
+
+On the `tmux` session, start first the application (top half)
+and then the producer (bottom half).
+
+# Manual Installation 
+
 ### Setup (assuming ubuntu 18.04)
 
 * export `$KAFKA` env var to point to local installation of kakfa, used by `kafka-tools`

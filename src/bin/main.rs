@@ -116,7 +116,8 @@ fn main() {
                         .get_matches();
 
     use clap::{value_t, values_t};
-    let queries: HashSet<usize> = HashSet::from_iter(values_t!(matches, "queries", usize).unwrap_or_else(|e| e.exit()));
+    let queries: HashSet<usize> =
+        HashSet::from_iter(values_t!(matches, "queries", usize).unwrap_or_else(|e| e.exit()));
     let workers = value_t!(matches, "workers", usize).unwrap_or_else(|e| e.exit());
 
     let (builder, other) = timely::Configuration::Process(workers).try_build().unwrap();

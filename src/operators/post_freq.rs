@@ -47,7 +47,7 @@ struct PostFrequencyState {
     worker_id: usize,
 
     // list of events created by a person in the last BURST_WINDOW
-    person_to_event_maps:  HashMap<u64,BTreeMap<u64, u64>>,
+    person_to_event_maps:  HashMap<u64, BTreeMap<u64, u64>>,
     person_to_event_count: HashMap<u64, u64>,
 
     percentile:          Percentile,
@@ -61,10 +61,10 @@ impl PostFrequencyState {
             worker_id:             worker_id,
             percentile:            Percentile::new(
                 (MAX_FREQ - 10) as f64, /* initial threshold and upper_bound */
-                5,               /* 5 percentile */
-                20,              /* number of buckets */
-                0_f64,           /* min value */
-                MAX_FREQ as f64, /* max value */
+                5,                      /* 5 percentile */
+                20,                     /* number of buckets */
+                0_f64,                  /* min value */
+                MAX_FREQ as f64,        /* max value */
             ),
             person_to_event_maps:  HashMap::new(),
             person_to_event_count: HashMap::new(),
@@ -87,11 +87,12 @@ impl PostFrequencyState {
 
         // see if there is a bucket which spans last BUCKET_WIDTH seconds. If not, add.
         if let Some((_, count)) =
-            map.range_mut((Excluded(timestamp - BUCKET_WIDTH), Included(timestamp))).next_back() {
-                *count += 1;
-            } else {
-                map.insert(timestamp, 1);
-            }
+            map.range_mut((Excluded(timestamp - BUCKET_WIDTH), Included(timestamp))).next_back()
+        {
+            *count += 1;
+        } else {
+            map.insert(timestamp, 1);
+        }
 
         // remove event that went out of date:
         let mut to_remove: Vec<u64> = Vec::new();

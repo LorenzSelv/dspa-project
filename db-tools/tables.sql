@@ -37,7 +37,6 @@ DELETE FROM person_workAt_organisation;
 \set t1 :tables'person_workAt_organisation.csv'
 COPY person_workAt_organisation FROM :'t1' DELIMITERS '|' CSV HEADER;
 
-DROP TABLE forum_has_member;
 
 CREATE TABLE IF NOT EXISTS forum_has_member (
 forum_id       BIGINT NOT NULL,
