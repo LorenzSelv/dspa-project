@@ -67,9 +67,9 @@ fn main() {
     });
 
     let event_stream = EventStream::new(
-        dataset.clone() + "posts_event_stream.csv",
+        dataset.clone() + "post_event_stream.csv",
         dataset.clone() + "likes_event_stream.csv",
-        dataset.clone() + "comments_event_stream.csv",
+        dataset.clone() + "comment_event_stream.csv",
     );
 
     let mut rng = rand::thread_rng();

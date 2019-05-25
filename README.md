@@ -1,13 +1,24 @@
-### Setup
+### Setup (assuming ubuntu 18.04)
 
-* export `$KAFKA` env var to local installation of kakfa, used by `kafka-tools`  
+* export `$KAFKA` env var to point to local installation of kakfa, used by `kafka-tools`
 `export KAFKA="/home/$USER/kafka/"`
 
-* change path in `Cargo.toml` to local cloned repo of `timely`, we should change this..  
-  (do not commit the changes, but also do not gitignore it)
+* make sure kafka `config/server.properties` has the option `delete.topic.enable=true`
 
-* load tables into database so they can be accessed by Rust binaries.
+* install `postgresql` and setup an account (the following _should_ be enough):
+```
+sudo apt install postgresql-10 postgresql-client-10
+sudo -u postgres pqsl
+# in the psql shell issue the \password command and set the password to "postgres" (IMPORTANT)
+```
+
+* download the 1k dataset and store it at `dataset/1k_users_sorted/`
+
+* load tables into database so they can be accessed by the application
 `psql postgres://postgres:postgres@localhost:5432 -f db-tools/tables.sql`
+
+* rust and cargo installation. Our `cargo --version` returns `cargo 1.35.0-nightly`.
+
 
 ### Build & Run
 
@@ -17,8 +28,8 @@
 * terminal 2 -- kafka server  
 `~/kafka $ bin/kafka-server-start.sh config/server.properties`
 
-* terminal 3 -- main application  
-`~/dspa-project $ kafka-tools/reset.sh && cargo run --bin active_posts --release -- -w1`
+* terminal 3 -- delete kafka topic and run the main application 
+`~/dspa-project $ kafka-tools/reset.sh && cargo run --release --bin main -- -q1,2,3 -w2`
 
-* terminal 4 -- producer  
-`~/dspa-project/producer $ cargo run --bin prod --release ../dataset/tests/task1/active/ # or other dataset path`
+* terminal 4 -- producer
+`~/dspa-project/producer $ cargo run --bin prod --release ../dataset/1k_users_sorted/streams/ # or other dataset path`
