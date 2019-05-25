@@ -6,7 +6,7 @@ PRIMARY KEY (person_id1, person_id2)
 
 DELETE FROM person_knows_person;
 
-\set tables `pwd`'/dataset/1k-users-sorted/tables/'
+\set tables `pwd`'/dataset/':db'/tables/'
 
 \set t1 :tables'person_knows_person.csv'
 COPY person_knows_person FROM :'t1' DELIMITERS '|' CSV HEADER;

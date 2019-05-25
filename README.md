@@ -12,12 +12,14 @@ sudo -u postgres pqsl
 # in the psql shell issue the \password command and set the password to "postgres" (IMPORTANT)
 ```
 
-* download the 1k dataset and store it at `dataset/1k_users_sorted/`
+* download the 1k dataset and store it at `dataset/1k-users-sorted/`
 
-* load tables into database so they can be accessed by the application
-`psql postgres://postgres:postgres@localhost:5432 -f db-tools/tables.sql`
+* load tables into database so they can be accessed by the application, passing the name of the
+dataset as a command line argument
+`psql postgres://postgres:postgres@localhost:5432 -f db-tools/tables.sql -v db="1k-users-sorted"`
 
 * rust and cargo installation. Our `cargo --version` returns `cargo 1.35.0-nightly`.
+`curl https://sh.rustup.rs -sSf | sh`
 
 
 ### Build & Run
