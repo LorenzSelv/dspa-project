@@ -31,7 +31,7 @@ dataset as a command line argument
 `~/kafka $ bin/kafka-server-start.sh config/server.properties`
 
 * terminal 3 -- delete kafka topic and run the main application 
-`~/dspa-project $ kafka-tools/reset.sh && cargo run --release --bin main -- -q1,2,3 -w2`
+`~/dspa-project $ kafka-tools/reset.sh && cargo run --release --bin main -- -q 1,2,3 -w2`
 
 * terminal 4 -- producer
-`~/dspa-project/producer $ cargo run --bin prod --release ../dataset/1k_users_sorted/streams/ # or other dataset path`
+`~/dspa-project/producer $ cargo run --bin prod --release ../dataset/1k-users-sorted/streams/ # or other dataset path`
