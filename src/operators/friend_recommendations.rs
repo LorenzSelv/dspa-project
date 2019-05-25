@@ -34,11 +34,12 @@ const WORK_AT_WEIGHT: u64 = 1;
 const STUDY_AT_WEIGHT: u64 = 1;
 
 // weights for dynamic events
-const LIKE_WEIGHT: u64 = 50;
-const COMMENT_WEIGHT: u64 = 50;
-const REPLY_WEIGHT: u64 = 50;
+const LIKE_WEIGHT: u64 = 5;
+const COMMENT_WEIGHT: u64 = 10;
+const REPLY_WEIGHT: u64 = 5;
 const FORUM_POST_WEIGHT: u64 = 20;
-const TAG_POST_WEIGHT: u64 = 100;
+const TAG_POST_WEIGHT: u64 = 10;
+const IS_ACTIVE_WEIGTH: u64 = 1;
 
 pub fn parse_tags(tags: &Option<String>) -> Vec<u64> {
     let mut v: Vec<u64> = Vec::new();
@@ -97,6 +98,19 @@ impl Timestamp for RecommendationUpdate {
                 *t
             }
             RecommendationUpdate::Reply { timestamp: t, from_person_id: _, to_person_id: _ } => *t,
+        }
+    }
+}
+
+impl RecommendationUpdate {
+    fn acter_pid(&self) -> u64 {
+        match self {
+            RecommendationUpdate::Post { timestamp: _, person_id: p, forum_id: _, tags: _ } => *p,
+            RecommendationUpdate::Like { timestamp: _, from_person_id: p, to_person_id: _ } => *p,
+            RecommendationUpdate::Comment { timestamp: _, from_person_id: p, to_person_id: _ } => {
+                *p
+            }
+            RecommendationUpdate::Reply { timestamp: _, from_person_id: p, to_person_id: _ } => *p,
         }
     }
 }
@@ -254,6 +268,15 @@ impl DynamicStateSingle {
 
         if let Some(delta) = delta_opt {
             self.delta_update(delta, rec_update.timestamp());
+        }
+
+        // update "active people" metric
+        let pid: u64 = rec_update.acter_pid();
+        if pid != self.person_id {
+            self.delta_update(
+                Score { person_id: pid, score: IS_ACTIVE_WEIGTH },
+                rec_update.timestamp(),
+            );
         }
     }
 
