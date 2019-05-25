@@ -323,9 +323,6 @@ impl DynamicStateSingle {
         for (&person_id, &static_score) in static_state.scores.iter() {
             let dyn_score: u64 =
                 self.window_scores.iter().map(|ws| ws.get(&person_id).unwrap_or(&0)).sum();
-            if dyn_score > 0 {
-                println!("dynamic score for {} of {}", person_id, dyn_score);
-            }
             let score = static_score + dyn_score;
 
             if top_scores.len() < RECOMMENDATION_SIZE {

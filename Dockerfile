@@ -1,9 +1,9 @@
 FROM ubuntu:18.04
 
 RUN mkdir workspace
-WORKDIR workspace 
+WORKDIR workspace
 
-RUN apt-get update && apt-get install -y wget git curl unzip
+RUN apt-get update && apt-get install -y wget git curl unzip vim
 
 # setup kafka
 RUN apt-get install -y default-jdk
@@ -13,7 +13,7 @@ RUN echo "\ndelete.topic.enable=true" >> kafka/config/server.properties
 ENV KAFKA="/workspace/kafka"
 
 # clone repo
-RUN git clone https://github.com/LorenzSelv/dspa-project/ 
+RUN git clone https://github.com/LorenzSelv/dspa-project/
 WORKDIR dspa-project
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -56,4 +56,4 @@ ENTRYPOINT pg_ctlcluster 10 main start && \
            su - postgres -c "psql -U postgres -d postgres -c \"alter user postgres with password 'postgres';\"" && \
            psql postgres://postgres:postgres@localhost:5432 -f db-tools/tables.sql -v db=$DATASET && \
            /bin/bash -c 'source dspa-tmux.sh'
-           
+
