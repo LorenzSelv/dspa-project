@@ -12,6 +12,29 @@ use crate::operators::active_posts::StatUpdate;
 use crate::operators::active_posts::StatUpdateType;
 use crate::operators::friend_recommendations::RecommendationUpdate;
 
+/// Given a stream of events, group them in connected components
+/// based on the root post id that they refer to.
+/// In other words, build the tree of events for each post.
+///
+/// The operator emits 2 streams as output:
+///     1) StatUpdates: will be fed into the `active_posts` operator
+///                     that implements query 1
+///     2) RecommendationUpdates: will be fed into the `friend_recommendation`
+///                     operator that implements query 2
+///
+/// In case of multiple workers, an upstream `exchange` operator
+/// will partition the events by root post id. Thus this operator
+/// will handle only a subset of the posts.
+///
+/// "Reply to comments" events are broadcasted to all workers
+/// as they don't carry the root post id in the payload.
+///
+/// When the `post_trees` operator receives an Reply event that
+/// cannot match to any currently received comment, it stores
+/// it in an out-of-order (ooo) queue. When the maximum bounded delay
+/// has expired, old events in the ooo queue are discarded
+/// (including events do not belong to the posts handled by this worker)
+///
 pub trait PostTrees<G: Scope> {
     fn post_trees(
         &self,
@@ -40,9 +63,8 @@ impl<G: Scope<Timestamp = u64>> PostTrees<G> for Stream<G, Event> {
                 input.for_each(|time, data| {
                     data.swap(&mut buf);
 
-                    // update the post trees
                     for event in buf.drain(..) {
-                        // println!("{} {}", "+".bold().yellow(), event.to_string().bold().yellow());
+                        // update the post trees
                         let (opt_target_id, opt_root_post_id) = state.update_post_tree(&event);
 
                         // check if the root post_id has been already received
@@ -73,14 +95,17 @@ impl<G: Scope<Timestamp = u64>> PostTrees<G> for Stream<G, Event> {
                     let mut stat_session = stat_handle.session(&time);
                     let mut rec_session = rec_handle.session(&time);
 
+                    // emit stat updates as output
                     for stat_update in state.pending_stat_updates.drain(..) {
                         stat_session.give(stat_update);
                     }
 
+                    // emit recommendation updates as output
                     for rec_update in state.pending_rec_updates.drain(..) {
                         rec_session.give(rec_update);
                     }
 
+                    // check we if we can clean some old events from the ooo queue
                     state.clean_ooo_events(*time.time());
                 });
             }
@@ -97,6 +122,7 @@ struct Node {
     root_post_id: ID,
 }
 
+/// State associated with the `post_trees` operator
 struct PostTreesState {
     worker_id: usize,
     // event ID --> post ID it refers to (root of the tree)
@@ -120,6 +146,7 @@ impl PostTreesState {
         }
     }
 
+    /// given an event, try to match it to some post tree
     fn update_post_tree(&mut self, event: &Event) -> (Option<ID>, Option<ID>) {
         match event {
             Event::Post(post) => {
@@ -150,8 +177,8 @@ impl PostTreesState {
         }
     }
 
-    /// process events that have `id` as their target,
-    /// recursively process the newly inserted ids
+    /// process events that have `root_event` as their target post,
+    /// recursively process the newly inserted events
     fn process_ooo_events(&mut self, root_event: &Event) {
         let id = root_event.id().unwrap();
         if let Some(events) = self.ooo_events.remove(&id) {
@@ -181,10 +208,13 @@ impl PostTreesState {
         }
     }
 
+    /// insert an event into the out-of-order queue
     fn push_ooo_event(&mut self, event: Event, target_id: ID) {
         self.ooo_events.entry(target_id).or_insert(Vec::new()).push(event);
     }
 
+    /// remove all old events from the out-of-order queue
+    /// (including Reply events there were not meant to be received by this worker)
     fn clean_ooo_events(&mut self, timestamp: u64) {
         self.ooo_events = self
             .ooo_events
@@ -229,6 +259,7 @@ impl PostTreesState {
     /// generate a new recommendation update and append it to the pending list
     fn append_rec_update(&mut self, event: &Event, root_post_id: u64) {
         if let Event::Post(post) = event {
+            // a new post with some tags has been created into a forum
             let update = RecommendationUpdate::Post {
                 timestamp: event.timestamp(),
                 person_id: event.person_id(),
