@@ -10,6 +10,14 @@ use crate::operators::window_notify::{Timestamp, WindowNotify};
 const NOTIFICATION_FREQ: u64 = 30 * 60; // every 30 minutes
 const ACTIVE_WINDOW_SECONDS: u64 = 12 * 3600; // stats for the last 12 hours
 
+/// Given a stream of StatUpdate (statistics updates) events,
+/// update the statistic for the associated post.
+///
+/// Every 30 minutes, emit the statistics for all active posts.
+/// We do not discard post statistics when they become inactive.
+///
+/// The windowing and out-of-order logic is handled by the
+/// generic `window_notify` operator.
 pub trait ActivePosts<G: Scope> {
     fn active_posts(&self, worker_id: usize) -> Stream<G, HashMap<u64, Stats>>;
 }
@@ -57,7 +65,7 @@ pub enum StatUpdateType {
     Like,
 }
 
-/// event type sent by the PostTrees operator
+/// event type sent by the `post_trees` operator
 #[derive(Clone, Debug)]
 pub struct StatUpdate {
     pub update_type: StatUpdateType,
@@ -79,6 +87,7 @@ struct ActivePostsState {
     stats: HashMap<u64, Stats>,
 }
 
+/// State associated with the `active_posts` operator
 impl ActivePostsState {
     fn new(worker_id: usize) -> ActivePostsState {
         ActivePostsState {
@@ -106,6 +115,7 @@ impl ActivePostsState {
         // dump_stats(&self.next_stats, 4);
     }
 
+    /// update statistics for the post id associated with the update
     fn update_stats(&mut self, stat_update: &StatUpdate) {
         let post_id = stat_update.post_id;
         let timestamp = stat_update.timestamp;
@@ -126,6 +136,7 @@ impl ActivePostsState {
         self.stats.entry(post_id).or_insert(Stats::new()).new_person(stat_update.person_id);
     }
 
+    /// emit statistics for the active posts
     fn active_posts_stats(&mut self, cur_timestamp: u64) -> HashMap<u64, Stats> {
         let active_posts = self
             .last_timestamp

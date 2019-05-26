@@ -11,6 +11,33 @@ pub trait Timestamp {
     fn timestamp(&self) -> u64;
 }
 
+/// Generic operator that delivers periodic notifications.
+///
+/// The interface expect the following:
+/// 1) window_size: size of the window in seconds (e.g. 30*60 for every 30 minutes)
+/// 2) op_name: name of the operator
+/// 3) state:   the initial state of the operator
+/// 4) on_new_input: callback function called when a new event is received;
+///                  it should update the `state` (passed as mutable)
+/// 5) on_notify: callback function called when a notification is delivered;
+///               given the state, it should emit the output for that window
+///
+/// This generic operator serves two main purposes:
+/// - implements the windowing logic:
+///     after the first events is received, it sets
+///     periodic notification every `window_size` starting from
+///     the timestamp of the first event
+///
+/// - handle out-of-order events:
+///     the operator internally keeps two copy of the state;
+///     one for the current window `cur_state`, and
+///     one for the next window `next_state`.
+///     When an event is delivered it will update either
+///     both states or only the `next_state` if the event
+///     belongs to the next window (this could happen as
+///     the internal time capability is delayed by the source
+///     operator taking into account the maximum bounded delay)
+///
 pub trait WindowNotify<
     G: Scope<Timestamp = u64>,
     D: Data + Timestamp + Debug,
@@ -42,6 +69,7 @@ impl<G: Scope<Timestamp = u64>, D: Data + Timestamp + Debug, S: Clone + 'static,
         let mut first_notification = true;
         let mut next_notification_time = std::u64::MAX;
 
+        // keep two states, current/next window
         let mut cur_state = state;
         let mut next_state = cur_state.clone();
 
@@ -51,16 +79,15 @@ impl<G: Scope<Timestamp = u64>, D: Data + Timestamp + Debug, S: Clone + 'static,
                 data.swap(&mut buf);
 
                 if first_notification {
-                    // println!("buf is {:?}", buf);
                     next_notification_time =
                         buf.iter().map(|el| el.timestamp()).min().expect("wtf") + window_size;
                     first_notification = false;
-                    // Set up the first notification.
+                    // Set up the first notification
                     notificator.notify_at(time.delayed(&next_notification_time));
                 }
 
                 for el in buf.drain(..) {
-                    // use caller-provided function to update the state
+                    // use caller-provided function to update the next_state
                     on_new_input(&mut next_state, &el, next_notification_time);
                     // the event might belong to the next window
                     // update the current state only if it does not
@@ -70,7 +97,7 @@ impl<G: Scope<Timestamp = u64>, D: Data + Timestamp + Debug, S: Clone + 'static,
                 }
             });
 
-            // Some setup in order to schedule new notifications inside a notification.
+            // Shut up borrow checker
             let notified_time = None;
             let ref1 = Rc::new(RefCell::new(notified_time));
             let ref2 = Rc::clone(&ref1);
@@ -85,12 +112,13 @@ impl<G: Scope<Timestamp = u64>, D: Data + Timestamp + Debug, S: Clone + 'static,
                 let mut session = output.session(&time);
                 session.give(out);
 
-                // we are switching to the next window, update state
+                // we are switching to the next window, flip the state
                 cur_state = next_state.clone();
             });
 
             let borrow = ref2.borrow();
             if let Some(cap) = &*borrow {
+                // setup next notification to the previous notification time + window_size
                 next_notification_time = *cap.time() + window_size;
                 notificator.notify_at(cap.delayed(&next_notification_time));
             }
