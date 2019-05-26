@@ -1,6 +1,6 @@
 # Docker
 
-### Build
+### Build (~ 15 minutes 😅)
 
 `sudo docker build -t dspa .`
 
@@ -15,8 +15,11 @@ to download it, rebuild and run:
 
 `sudo docker run -e DATASET="10k-users-sorted" -it dspa`
 
-On the `tmux` session, start first the application (top half)
-and then the producer (bottom half).
+*IMPORTANT*: On the `tmux` session, start first the application (top half)
+and only when it finished you should start the producer (bottom half).
+The first time you run the `kafka-tools/reset.sh` it will look like the whole world is imploding
+(thank you Java). Nothing to be warned about, it's just trying to delete a kafka topic 
+that is not there in the beginning, but it will be there next time you run the same command.
 
 General runtime parameters (e.g. speedup factor and number of kafka partitions)
 can be changed in the `Settings.toml` file.
