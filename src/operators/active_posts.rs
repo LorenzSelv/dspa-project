@@ -18,6 +18,7 @@ const ACTIVE_WINDOW_SECONDS: u64 = 12 * 3600; // stats for the last 12 hours
 ///
 /// The windowing and out-of-order logic is handled by the
 /// generic `window_notify` operator.
+///
 pub trait ActivePosts<G: Scope> {
     fn active_posts(&self, worker_id: usize) -> Stream<G, HashMap<u64, Stats>>;
 }

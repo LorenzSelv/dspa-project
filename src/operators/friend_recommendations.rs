@@ -28,14 +28,15 @@ const NUM_WINDOWS: usize = (ACTIVE_WINDOW_SECONDS / NOTIFICATION_FREQ) as usize;
 const RECOMMENDATION_SIZE: usize = 5;
 const POSTGRES_URI: &'static str = "postgres://postgres:postgres@localhost:5432";
 
-// The following constants determines the relative
-// weight
-// wights for static data
+// The following constants determines the relative importance of events
+// in the recommendation algorithm, might need some tuning depending on the dataset
+
+// - weights for static data
 const COMMON_FRIENDS_WEIGHT: u64 = 1;
 const WORK_AT_WEIGHT: u64 = 1;
 const STUDY_AT_WEIGHT: u64 = 1;
 
-// weights for dynamic events
+// - weights for dynamic events
 const LIKE_WEIGHT: u64 = 5;
 const COMMENT_WEIGHT: u64 = 10;
 const REPLY_WEIGHT: u64 = 5;
@@ -58,6 +59,36 @@ pub fn parse_tags(tags: &Option<String>) -> Vec<u64> {
     }
 }
 
+/// Given a stream of RecommendationUpdate events,
+/// update the scores of potential friends for the associated person.
+///
+/// Every 60 minutes, emit the top-5 friend recommendations (and their score)
+/// for the requested people by taking into account only the streaming
+/// activity of the last 4 hours.
+///
+/// To efficiently consider only the events of the last 4 hours, we keep
+/// a queue of dynamic score *delta* for each hour (the notification window size),
+/// so that we leverage the `window_notify` operator and discard old events.
+///
+/// Consider the illustration below, updating the relevant events simply
+/// involves a truncation of the queue:
+/// d0                  |
+/// d0 d1               | <- in the beginning there is nothing to truncate,
+/// d0 d1 d2           _|    all events are within 4 hours
+/// d0 d1 d2 d3          |
+///    d1 d2 d3 d4       | <- later we need to truncate old events
+///       d2 d3 d4 d5   _|    
+///
+/// Recommendations are based on a score computed as a linear
+/// combination of factors (both static and dynamics) with tunable weights.
+///
+/// Whenever we need to emit recommendation we sum up the deltas and
+/// compute the dynamic score.
+/// Adding the static score and dynamic score yields the final result.
+///
+/// The windowing and out-of-order logic is handled by the
+/// generic `window_notify` operator.
+///
 pub trait FriendRecommendations<G: Scope> {
     fn friend_recommendations(&self, person_ids: &Vec<u64>) -> Stream<G, HashMap<u64, Vec<Score>>>;
 }
@@ -66,6 +97,7 @@ impl<G: Scope<Timestamp = u64>> FriendRecommendations<G> for Stream<G, Recommend
     fn friend_recommendations(&self, person_ids: &Vec<u64>) -> Stream<G, HashMap<u64, Vec<Score>>> {
         let conn = Connection::connect(POSTGRES_URI, TlsMode::None).unwrap();
 
+        /// initialize the static state with the database data
         let static_state = StaticState::new(person_ids, &conn);
         let static_state_copy = static_state.clone();
 
@@ -81,6 +113,7 @@ impl<G: Scope<Timestamp = u64>> FriendRecommendations<G> for Stream<G, Recommend
     }
 }
 
+/// events emitted by the `post_trees` operator
 #[derive(Clone, Debug)]
 pub enum RecommendationUpdate {
     Post { timestamp: u64, person_id: u64, forum_id: u64, tags: Option<String> },
@@ -136,6 +169,7 @@ impl PartialOrd for Score {
     fn partial_cmp(&self, other: &Score) -> Option<Ordering> { Some(self.cmp(other)) }
 }
 
+/// for each person, its dynamic state
 #[derive(Clone)]
 struct DynamicState {
     pid_to_state: HashMap<u64, DynamicStateSingle>,
@@ -177,6 +211,7 @@ impl DynamicState {
     }
 }
 
+/// dynamic state for a single person
 #[derive(Clone)]
 struct DynamicStateSingle {
     person_id:         u64,
@@ -195,7 +230,7 @@ impl DynamicStateSingle {
         }
     }
 
-    /// given a recommendationUpdate update the dynamic score
+    /// given a RecommendationUpdate update the dynamic score
     fn update(
         &mut self,
         rec_update: &RecommendationUpdate,
@@ -215,6 +250,7 @@ impl DynamicStateSingle {
                     None
                 }
             }
+            // person A comments post P created by person B => suggest B to A
             RecommendationUpdate::Comment {
                 timestamp: _,
                 from_person_id: fpid,
@@ -226,6 +262,7 @@ impl DynamicStateSingle {
                     None
                 }
             }
+            // person A replies to a comment of person B => suggest B to A
             RecommendationUpdate::Reply {
                 timestamp: _,
                 from_person_id: fpid,
@@ -237,6 +274,8 @@ impl DynamicStateSingle {
                     None
                 }
             }
+            // person A follows tag T and person B posts something with tag T => suggest B to A
+            // person A belongs to forum F and person B posts something to forum F => suggest B to A
             RecommendationUpdate::Post {
                 timestamp: _,
                 person_id: pid,
@@ -263,6 +302,7 @@ impl DynamicStateSingle {
             }
         };
 
+        // first time we receive an update
         if self.last_notification == 0 {
             self.last_notification = next_notification_time;
             self.window_scores.push_back(HashMap::new());
@@ -282,6 +322,7 @@ impl DynamicStateSingle {
         }
     }
 
+    /// update the score for the corresponding 1-hour mini-window
     fn delta_update(&mut self, delta: Score, event_timestamp: u64) {
         let idx = if event_timestamp <= self.last_notification {
             let back_offset =
