@@ -18,6 +18,9 @@ to download it, rebuild and run:
 On the `tmux` session, start first the application (top half)
 and then the producer (bottom half).
 
+General runtime parameters (e.g. speedup factor and number of kafka partitions)
+can be changed in the `Settings.toml` file.
+
 # Manual Installation 
 
 ### Setup (assuming ubuntu 18.04)

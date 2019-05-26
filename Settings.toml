@@ -1,6 +1,6 @@
 # do not change these
 TOPIC = "events"
-WATERMARK_INTERVAL_MIN = 4
+WATERMARK_INTERVAL_MIN = 3
 
 # you can change these
 DELAY_PROB = 0.4
