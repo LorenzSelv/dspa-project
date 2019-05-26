@@ -7,6 +7,7 @@ use timely::Data;
 use rdkafka::consumer::{BaseConsumer, ConsumerContext};
 use rdkafka::Message;
 
+// mostly copy paste from timely repo
 pub fn kafka_source<C, G, D, L>(
     scope: &G,
     name: &str,

@@ -18,6 +18,10 @@ lazy_static! {
     static ref NUM_PARTITIONS: i32 = SETTINGS.get::<i32>("NUM_PARTITIONS").unwrap();
 }
 
+
+/// subscribe to the requested topic and return a stream
+/// of Kafka records (strings).
+/// Kafka partition are assigned to workers in a round-robin fashion.
 pub fn string_stream<'a, G>(
     scope: &mut G,
     topic: &'static str,
@@ -54,16 +58,22 @@ where
     }
     consumer.assign(&partition_list).expect("error in assigning partition list");
 
-    println!("[kafka-consumer] subscribed to {} partitions of topic \"{}\"", partition_list.count(), topic);
+    println!(
+        "[kafka-consumer] subscribed to {} partitions of topic \"{}\"",
+        partition_list.count(),
+        topic
+    );
 
     kafka_source(scope, "KafkaStringSourceStream", consumer, |bytes, capability, output| {
         // If the bytes are utf8, convert to string and send.
         if let Ok(text) = std::str::from_utf8(bytes) {
             let timestamp = if text.starts_with("WATERMARK") {
                 // format is WATERMARK|<timestamp>
+                // use watermark to downgrade capabilities
                 let t = text.split("|").collect::<Vec<_>>()[1].trim();
                 t.parse::<u64>().unwrap()
             } else {
+                // forward only real events
                 output.session(capability).give(text.to_string());
                 let date_str = text.split("|").collect::<Vec<_>>()[2].trim();
                 let date = Utc
@@ -76,13 +86,14 @@ where
 
             let time = *capability.time();
             if timestamp - *MAX_DELAY_SEC > time {
+                // downgrade the capability by considering the event timestamp
+                // and the maximum bounded delay
                 capability.downgrade(&(timestamp - *MAX_DELAY_SEC));
             }
 
-            // Indicate that we are not yet done.
             false
         } else {
             true
-        } // if false keeps on waiting
+        }
     })
 }

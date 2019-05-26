@@ -31,6 +31,9 @@ impl fmt::Display for ID {
     }
 }
 
+/// A generic Event type.
+/// Events are parsed using serde from string records read from kafka.
+///
 #[derive(Debug, Clone)]
 pub enum Event {
     Post(PostEvent),
@@ -180,7 +183,7 @@ pub struct PostEvent {
     pub browser_used:  String,
     pub language:      Option<String>,
     pub content:       String,
-    pub tags:          Option<String>, // TODO should be Vec<u64>> #[serde(flatten)]
+    pub tags:          Option<String>,
     pub forum_id:      u64,
     pub place_id:      u64,
 }
