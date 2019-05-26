@@ -28,7 +28,9 @@ const NUM_WINDOWS: usize = (ACTIVE_WINDOW_SECONDS / NOTIFICATION_FREQ) as usize;
 const RECOMMENDATION_SIZE: usize = 5;
 const POSTGRES_URI: &'static str = "postgres://postgres:postgres@localhost:5432";
 
-// TODO tune the weights
+// The following constants determines the relative
+// weight
+// wights for static data
 const COMMON_FRIENDS_WEIGHT: u64 = 1;
 const WORK_AT_WEIGHT: u64 = 1;
 const STUDY_AT_WEIGHT: u64 = 1;

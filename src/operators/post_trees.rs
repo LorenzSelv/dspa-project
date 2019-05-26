@@ -81,7 +81,6 @@ impl<G: Scope<Timestamp = u64>> PostTrees<G> for Stream<G, Event> {
                         rec_session.give(rec_update);
                     }
 
-                    // TODO do only every once in a while .. ?
                     state.clean_ooo_events(*time.time());
                 });
             }

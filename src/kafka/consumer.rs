@@ -33,7 +33,7 @@ where
     consumer_config
         .set("produce.offset.report", "true")
         .set("auto.offset.reset", "smallest")
-        .set("group.id", "example") // TODO we wanna change this
+        .set("group.id", "dspa")
         .set("enable.auto.commit", "false")
         .set("enable.partition.eof", "false")
         .set("auto.offset.reset", "earliest")
@@ -53,11 +53,7 @@ where
     }
     consumer.assign(&partition_list).expect("error in assigning partition list");
 
-    println!(
-        "[kafka-consumer] subscribed to topic \"{}\" with assignment {:?}",
-        topic,
-        consumer.assignment()
-    );
+    println!("[kafka-consumer] subscribed to topic \"{}\"", topic);
 
     kafka_source(scope, "KafkaStringSourceStream", consumer, |bytes, capability, output| {
         // If the bytes are utf8, convert to string and send.

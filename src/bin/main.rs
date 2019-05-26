@@ -1,8 +1,3 @@
-/* TODO
- * - review all kafka options we pass to the BaseConsumer config
- * - handle the case when number of workers and number of partitions is not the same
- * - more TODOs...
- */
 #[macro_use]
 extern crate lazy_static;
 
@@ -119,6 +114,8 @@ fn main() {
     let queries: HashSet<usize> =
         HashSet::from_iter(values_t!(matches, "queries", usize).unwrap_or_else(|e| e.exit()));
     let workers = value_t!(matches, "workers", usize).unwrap_or_else(|e| e.exit());
+
+    println!("[main] running queries {:?} with {} workers", queries, workers);
 
     let (builder, other) = timely::Configuration::Process(workers).try_build().unwrap();
     timely::execute::execute_from(builder, other, move |worker| {

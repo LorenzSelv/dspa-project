@@ -127,7 +127,6 @@ impl ActivePostsState {
     }
 
     fn active_posts_stats(&mut self, cur_timestamp: u64) -> HashMap<u64, Stats> {
-        // TODO refactor
         let active_posts = self
             .last_timestamp
             .iter()
