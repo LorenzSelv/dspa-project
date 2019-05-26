@@ -108,12 +108,14 @@ fn main() {
     let matches = clap::App::new("dspa-project")
                         .arg_from_usage("-q --queries=<QUERY-ID>... 'Comma separated list of queries to run (e.g. -q 1,2), default is all queries'")
                         .arg_from_usage("-w --workers=<NUM-WORKERS> 'Comma separated list of queries to run (e.g. -w 2), default is 1'")
+                        .arg(clap::Arg::with_name("verbose").short("v").takes_value(false).required(false))
                         .get_matches();
 
     use clap::{value_t, values_t};
     let queries: HashSet<usize> =
         HashSet::from_iter(values_t!(matches, "queries", usize).unwrap_or_else(|e| e.exit()));
     let workers = value_t!(matches, "workers", usize).unwrap_or_else(|e| e.exit());
+    let verbose = matches.is_present("verbose");
 
     println!("[main] running queries {:?} with {} workers", queries, workers);
 
@@ -127,9 +129,11 @@ fn main() {
             // read kakfa stream
             let event_stream = get_event_stream(scope, widx, num_workers);
 
-            event_stream.inspect(move |event: &Event| {
-                println!("{} {}", "+".bold().yellow(), event.to_string().bold().yellow())
-            });
+            if verbose {
+                event_stream.inspect(move |event: &Event| {
+                    println!("{} {}", "+".bold().yellow(), event.to_string().bold().yellow())
+                });
+            }
 
             // compute and store post_trees,
             // emit stats and recommendation updates
