@@ -18,7 +18,6 @@ lazy_static! {
     static ref NUM_PARTITIONS: i32 = SETTINGS.get::<i32>("NUM_PARTITIONS").unwrap();
 }
 
-
 /// subscribe to the requested topic and return a stream
 /// of Kafka records (strings).
 /// Kafka partition are assigned to workers in a round-robin fashion.
