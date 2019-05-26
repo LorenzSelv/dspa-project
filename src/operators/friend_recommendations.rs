@@ -6,7 +6,7 @@
 // Person A is interested in tag T and person B creates a post with tag T.
 //  x  Person A likes post P created by person B.
 //  x  Person A comments on post P created by person B.
-//     Person A replies to comment C created by person B.
+//  x  Person A replies to comment C created by person B.
 //     Person A and person B comments / likes / replies to the same post P.
 //  x  Person B posts in a forum that person A is a member of.
 //     Person B comments in a forum that person A is a member of.
@@ -97,7 +97,7 @@ impl<G: Scope<Timestamp = u64>> FriendRecommendations<G> for Stream<G, Recommend
     fn friend_recommendations(&self, person_ids: &Vec<u64>) -> Stream<G, HashMap<u64, Vec<Score>>> {
         let conn = Connection::connect(POSTGRES_URI, TlsMode::None).unwrap();
 
-        /// initialize the static state with the database data
+        // initialize the static state with the database data
         let static_state = StaticState::new(person_ids, &conn);
         let static_state_copy = static_state.clone();
 
@@ -351,7 +351,10 @@ impl DynamicStateSingle {
         static_state: &StaticStateSingle,
         notification_timestamp: u64,
     ) -> Vec<Score> {
-        assert!(notification_timestamp >= self.last_notification);
+        if notification_timestamp < self.last_notification {
+            // either dataset is broken or you should reduce the speedup factor
+            return Vec::new();
+        }
 
         // discard old windows
         let empty_windows = min(

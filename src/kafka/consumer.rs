@@ -45,6 +45,7 @@ where
         consumer_config.create().expect("Couldn't create consumer");
     consumer.subscribe(&[&topic.to_string()]).expect("Failed to subscribe to topic");
 
+    // assign kafka partition to workers in a round-robin fashion
     let mut partition_list = TopicPartitionList::new();
     let mut partition = index as i32;
     while partition < *NUM_PARTITIONS {
@@ -53,7 +54,7 @@ where
     }
     consumer.assign(&partition_list).expect("error in assigning partition list");
 
-    println!("[kafka-consumer] subscribed to topic \"{}\"", topic);
+    println!("[kafka-consumer] subscribed to {} partitions of topic \"{}\"", partition_list.count(), topic);
 
     kafka_source(scope, "KafkaStringSourceStream", consumer, |bytes, capability, output| {
         // If the bytes are utf8, convert to string and send.
