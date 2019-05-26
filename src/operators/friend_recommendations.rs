@@ -9,7 +9,8 @@
 //  x  Person A replies to comment C created by person B.
 //     Person A and person B comments / likes / replies to the same post P.
 //  x  Person B posts in a forum that person A is a member of.
-//     Person B comments in a forum that person A is a member of.
+//  x  Person B posts with tag T, that person A previously used.
+//  x  Person B is active within the last "ACTIVE_WINDOW"
 
 use std::cmp::min;
 use std::cmp::Ordering;
@@ -77,7 +78,7 @@ pub fn parse_tags(tags: &Option<String>) -> Vec<u64> {
 /// d0 d1 d2           _|    all events are within 4 hours
 /// d0 d1 d2 d3          |
 ///    d1 d2 d3 d4       | <- later we need to truncate old events
-///       d2 d3 d4 d5   _|    
+///       d2 d3 d4 d5   _|
 ///
 /// Recommendations are based on a score computed as a linear
 /// combination of factors (both static and dynamics) with tunable weights.

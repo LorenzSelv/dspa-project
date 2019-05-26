@@ -13,6 +13,27 @@ use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::*;
 use timely::dataflow::{Scope, Stream};
 
+/// This operator monitors frequencies at which users post, comment, or reply
+/// and returns pids of users whose frequency is in the (or close to) 95th
+/// percentile. The dynamic threshold computation is carried out inside the
+/// Percentile struct.
+///
+/// The computation of posting frequency is following:
+///
+///  First, We define
+///   - BURST_WINDOW (in seconds) - time period over which the frequency is measured.
+///   - BUCKET_WIDTH (int second) - time period strictly smaller than BURST_WINDOW.
+///
+///  Every user has an associated set of buckets. Each bucket is a pair (timestamp, count)
+///  where <count> is  number of events from this user in time_period
+///  [timestamp .. timestamp + BUCKET_WIDTH).
+///  A bucket for a user is only present if the associated count is greater than 0.
+///  Moreover, time periods associated with the buckets of a particular user are
+///  strictly disjoint.
+///
+///  The total frequency is calculated as the sum of counts of buckets, whose duration
+///  overlaps the last BURST_WINDOW seconds. Buckets are deleted when they become outdated.
+///
 pub trait PostFrequency<G: Scope> {
     fn post_frequency(&self, worker_id: usize) -> Stream<G, u64>;
 }
@@ -61,7 +82,7 @@ impl PostFrequencyState {
             worker_id:             worker_id,
             percentile:            Percentile::new(
                 (MAX_FREQ - 10) as f64, /* initial threshold and upper_bound */
-                5,                      /* 5 percentile */
+                5,                      /* 100-5 percentile */
                 20,                     /* number of buckets */
                 0_f64,                  /* min value */
                 MAX_FREQ as f64,        /* max value */
