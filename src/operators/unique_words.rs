@@ -6,16 +6,16 @@ use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::*;
 use timely::dataflow::{Scope, Stream};
 
-// We define unique_ratio for a post or a comment to be the ratio between
-// the number of unique words and the number of words in its content field.
-//
-// Given a stream of events, UniqueWords returns pids of users who's unique_ratio
-// is in the (or close to) 95th percentile of users. The dynamic threshold
-// computation is carried inside the Percentile struct.
-//
-// Once a user is marked as spam, all subsequent events of that user are disregarded.
-// Thus, the operator cannot mark the user's activity as spam multiple times.
-
+/// We define unique_ratio for a post or a comment to be the ratio between
+/// the number of unique words and the number of words in its content field.
+///
+/// Given a stream of events, UniqueWords returns pids of users who's unique_ratio
+/// is in the (or close to) 95th percentile of users. The dynamic threshold
+/// computation is carried inside the Percentile struct.
+///
+/// Once a user is marked as spam, all subsequent events of that user are disregarded.
+/// Thus, the operator cannot mark the user's activity as spam multiple times.
+///
 pub trait UniqueWords<G: Scope> {
     fn unique_words(&self, worker_id: usize) -> Stream<G, u64>;
 }
